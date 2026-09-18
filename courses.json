@@ -1,26 +1,41 @@
 [
-  {
-    "id": "2026-01-16-1120-muaythai",
-    "month": 1,
-    "day": 16,
-    "weekday": "週六",
-    "time": "1120",
-    "name": "燃脂泰拳"
-  },
-  {
-    "id": "2026-01-17-0900-pilates",
-    "month": 1,
-    "day": 17,
-    "weekday": "週日",
-    "time": "0900",
-    "name": "皮拉提斯"
-  },
-  {
-    "id": "2026-01-18-1900-boxing",
-    "month": 1,
-    "day": 18,
-    "weekday": "週一",
-    "time": "1900",
-    "name": "拳擊有氧"
-  }
+  { "id": "mon-1835-1", "weekday": "週一", "time": "1835", "name": "Zumba" },
+  { "id": "mon-1920-1", "weekday": "週一", "time": "1920", "name": "基礎啞鈴" },
+  { "id": "mon-2035-1", "weekday": "週一", "time": "2035", "name": "TRX" },
+  { "id": "mon-1830-1", "weekday": "週一", "time": "1830", "name": "基礎飛輪" },
+  { "id": "mon-1920-2", "weekday": "週一", "time": "1920", "name": "競技跆拳" },
+  { "id": "mon-1930-1", "weekday": "週一", "time": "1930", "name": "滾筒放鬆" },
+  { "id": "mon-2100-1", "weekday": "週一", "time": "2100", "name": "紓壓踢拳靶" },
+
+  { "id": "tue-1830-1", "weekday": "週二", "time": "1830", "name": "Zumba" },
+  { "id": "tue-1940-1", "weekday": "週二", "time": "1940", "name": "TRX" },
+  { "id": "tue-2040-1", "weekday": "週二", "time": "2040", "name": "肌力循環" },
+  { "id": "tue-1820-1", "weekday": "週二", "time": "1820", "name": "基礎下肢訓練班" },
+  { "id": "tue-1935-1", "weekday": "週二", "time": "1935", "name": "VIPR" },
+  { "id": "tue-1820-2", "weekday": "週二", "time": "1820", "name": "居家放鬆" },
+  { "id": "tue-1940-2", "weekday": "週二", "time": "1940", "name": "競技跆拳" },
+  { "id": "tue-2040-2", "weekday": "週二", "time": "2040", "name": "基礎跆拳" },
+
+  { "id": "wed-1835-1", "weekday": "週三", "time": "1835", "name": "TRX" },
+  { "id": "wed-1940-1", "weekday": "週三", "time": "1940", "name": "伸展瑜珈" },
+  { "id": "wed-1810-1", "weekday": "週三", "time": "1810", "name": "肌力循環" },
+  { "id": "wed-2115-1", "weekday": "週三", "time": "2115", "name": "紓壓踢拳靶" },
+  { "id": "wed-1810-2", "weekday": "週三", "time": "1810", "name": "飛輪" },
+  { "id": "wed-1940-2", "weekday": "週三", "time": "1940", "name": "超燃踢拳" },
+  { "id": "wed-2025-1", "weekday": "週三", "time": "2025", "name": "飛輪" },
+  { "id": "wed-2030-1", "weekday": "週三", "time": "2030", "name": "超燃防身術" },
+
+  { "id": "thu-1830-1", "weekday": "週四", "time": "1830", "name": "TRX" },
+  { "id": "thu-1940-1", "weekday": "週四", "time": "1940", "name": "肌力循環" },
+  { "id": "thu-2035-1", "weekday": "週四", "time": "2035", "name": "VIPR" },
+  { "id": "thu-1840-1", "weekday": "週四", "time": "1840", "name": "燃脂泰拳" },
+  { "id": "thu-1925-1", "weekday": "週四", "time": "1925", "name": "飛輪" },
+  { "id": "thu-2015-1", "weekday": "週四", "time": "2015", "name": "爆汗拳擊" },
+  { "id": "thu-2100-1", "weekday": "週四", "time": "2100", "name": "紓壓拳擊靶" },
+
+  { "id": "fri-2000-1", "weekday": "週五", "time": "2000", "name": "Zumba" },
+  { "id": "fri-1830-1", "weekday": "週五", "time": "1830", "name": "上肢壯起來" },
+  { "id": "fri-1930-1", "weekday": "週五", "time": "1930", "name": "TRX" },
+  { "id": "fri-2035-1", "weekday": "週五", "time": "2035", "name": "核心毀滅者" },
+  { "id": "fri-1830-2", "weekday": "週五", "time": "1830", "name": "TRX" }
 ]

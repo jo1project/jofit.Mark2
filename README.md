@@ -8,14 +8,15 @@
 
 ```
 project.yml                  # XcodeGen 專案定義（.xcodeproj 由 CI 自動產生，不進版控）
-courses.json                 # 課程清單的真正來源 — App 執行時透過網路抓這個檔案
+courses.json                 # 每週固定課表（依星期幾重複）— App 執行時透過網路抓這個檔案
 Jofit/
   JofitApp.swift
-  Models/Course.swift        # Course 型別 + 一份離線用的內建預設清單
+  Models/Course.swift        # Course：某一堂課「這一週實際落在哪一天」的具體版本
+  Models/CourseTemplate.swift # CourseTemplate：courses.json 的每週重複樣板 + 換算日期邏輯
   Models/SubmissionRecord.swift
   Services/FormSubmissionService.swift   # 送出表單的網路請求
   Services/SubmissionStore.swift         # 送出紀錄的本地儲存
-  Services/CourseStore.swift             # 從 courses.json 抓課表 + 本地快取
+  Services/CourseStore.swift             # 從 courses.json 抓課表 + 本地快取 + 換算成本週日期
   Services/ScheduleManager.swift         # 定時搶課邏輯
   Services/UserSettings.swift            # 姓名/員工編號設定
   Views/                      # 四個分頁：快速報名、排程搶課、紀錄、設定
@@ -60,19 +61,21 @@ Jofit/
 https://raw.githubusercontent.com/jo1project/jofit.Mark2/main/courses.json
 ```
 
-要更新課表，直接編輯 repo 根目錄的 `courses.json`（可以在 GitHub 網頁上點檔案的鉛筆圖示直接改，不用 clone），push 到 `main` 即可，幾秒內下次開 App 或下拉重新整理就會拿到新清單。格式要跟表單要求的一致（範例：`1/16 週六 1120 燃脂泰拳`，日期需兩位數如 `9/01`），每筆需要一個不重複的 `id`：
+`courses.json` 存的是**每週固定重複的課表**（例如「每週一 18:35 Zumba」），不是特定日期，因為健身房的課表本來就是照星期幾每週重複。App 拿到這份清單後，會自動幫每一筆算出「這個星期幾、落在本週哪一天」，只顯示落在表單允許預約範圍內（今天起 7 天內）的那一堂課——所以完全不用每週手動改日期，只有健身房真的調整了每週課表（新增/刪除/改時段）時才需要改這個檔案：
 
 ```json
 [
-  { "id": "2026-01-16-1120-muaythai", "month": 1, "day": 16, "weekday": "週六", "time": "1120", "name": "燃脂泰拳" }
+  { "id": "mon-1835-1", "weekday": "週一", "time": "1835", "name": "Zumba" }
 ]
 ```
+
+要更新課表，直接編輯 repo 根目錄的 `courses.json`（可以在 GitHub 網頁上點檔案的鉛筆圖示直接改，不用 clone），push 到 `main` 即可，幾秒內下次開 App 或下拉重新整理就會拿到新清單。`weekday` 只接受 `週日` ~ `週六`；`time` 是四位數 24 小時制（`1120` 代表 11:20）；`id` 只要在整份清單裡不重複即可（同一天同時段有多堂課時，用 `id` 尾碼區分，例如 `tue-1820-1`／`tue-1820-2`）。
 
 因為 `courses.json` 不在 `.github/workflows/testflight.yml` 監看的 `Jofit/**`、`project.yml` 路徑內，改這個檔案**不會**觸發 TestFlight 重新建置 —— 這是刻意設計的，課表更新和 App 版本完全脫鉤。
 
 幾個實作細節：
-- App 會把抓到的清單存一份在本機（`courses_cache.json`），下次開啟時如果剛好沒網路，會先顯示上次抓到的快取，並在畫面下方顯示錯誤訊息。
-- `Jofit/Models/Course.swift` 裡的 `Courses.fallback` 是全新安裝、且第一次開啟時剛好沒網路（沒有任何快取可用）才會用到的內建預設清單，平常不會用到，只是保底。
+- App 會把抓到的樣板清單存一份在本機（`courses_cache.json`），下次開啟時如果剛好沒網路，會先用上次抓到的快取重新換算日期顯示，並在畫面下方顯示錯誤訊息。
+- `Jofit/Models/CourseTemplate.swift` 裡的 `CourseTemplates.fallback` 是全新安裝、且第一次開啟時剛好沒網路（沒有任何快取可用）才會用到的內建預設清單，平常不會用到，只是保底。
 - 因為這個 repo 目前是 **public**，`courses.json` 的網址任何人拿得到連結都看得到內容（課程時段/名稱本身不算敏感資料，但如果之後想關閉這個能見度，需要改用其他有存取控制的來源，例如私有的小型 API）。
 
 ## 排程搶課的限制（誠實說明）

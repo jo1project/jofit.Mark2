@@ -1,13 +1,13 @@
 import Foundation
 import Combine
 
-/// Loads the course list from `courses.json` in the repo (raw.githubusercontent.com), so the
-/// schedule can be updated by editing that file and pushing to `main` — no app rebuild needed.
-/// Falls back to the last successfully fetched copy (cached on disk), and to a small bundled
-/// default list if there's no cache yet (first launch, offline).
+/// Loads the weekly recurring course schedule from `courses.json` in the repo (raw
+/// GitHub URL) at launch and on pull-to-refresh, resolving each recurring slot to the one
+/// concrete date currently inside the form's booking window. Caches the raw templates on disk
+/// and falls back to a small bundled default list if no fetch has ever succeeded.
 @MainActor
 final class CourseStore: ObservableObject {
-    @Published private(set) var courses: [Course]
+    @Published private(set) var courses: [Course] = []
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastError: String?
@@ -16,11 +16,13 @@ final class CourseStore: ObservableObject {
         string: "https://raw.githubusercontent.com/jo1project/jofit.Mark2/main/courses.json"
     )!
     private let cacheURL: URL
+    private var templates: [CourseTemplate]
 
     init() {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         cacheURL = dir.appendingPathComponent("courses_cache.json")
-        courses = Self.loadCache(from: cacheURL) ?? Courses.fallback
+        templates = Self.loadCache(from: cacheURL) ?? CourseTemplates.fallback
+        courses = Self.resolve(templates)
     }
 
     func refresh() async {
@@ -33,25 +35,34 @@ final class CourseStore: ObservableObject {
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 throw URLError(.badServerResponse)
             }
-            let decoded = try JSONDecoder().decode([Course].self, from: data)
+            let decoded = try JSONDecoder().decode([CourseTemplate].self, from: data)
             guard !decoded.isEmpty else { throw URLError(.zeroByteResource) }
 
-            courses = decoded
+            templates = decoded
+            courses = Self.resolve(decoded)
             lastUpdated = Date()
             lastError = nil
             Self.saveCache(decoded, to: cacheURL)
         } catch {
+            // Re-resolve the existing templates in case the day rolled over since launch.
+            courses = Self.resolve(templates)
             lastError = "課表更新失敗，目前顯示上次的快取資料（\(error.localizedDescription)）"
         }
     }
 
-    private static func loadCache(from url: URL) -> [Course]? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode([Course].self, from: data)
+    private static func resolve(_ templates: [CourseTemplate]) -> [Course] {
+        templates
+            .compactMap { $0.resolvedCourse() }
+            .sorted { ($0.month, $0.day, $0.time) < ($1.month, $1.day, $1.time) }
     }
 
-    private static func saveCache(_ courses: [Course], to url: URL) {
-        guard let data = try? JSONEncoder().encode(courses) else { return }
+    private static func loadCache(from url: URL) -> [CourseTemplate]? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode([CourseTemplate].self, from: data)
+    }
+
+    private static func saveCache(_ templates: [CourseTemplate], to url: URL) {
+        guard let data = try? JSONEncoder().encode(templates) else { return }
         try? data.write(to: url, options: .atomic)
     }
 }
