@@ -53,11 +53,16 @@ JofitWidget/                 # WidgetKit extension target
 2. **建立 App Group**：同一個 Identifiers 頁面切到 App Groups → 新增一個，ID 填 `group.com.jofit.autobooking`。回到剛剛的兩個 Bundle ID，各自把 App Groups 這項能力打開，並勾選剛建立的這個群組——主 App 和小工具就是靠這個共用容器交換「今天有沒有課」的資料。（自動簽章理論上可以自己建立/更新 App ID 和 Provisioning Profile，但 App Group 這種「能力」本身通常還是要手動建立一次，這步不能省。）
 3. **建立 App Store Connect 上的 App 紀錄**：App Store Connect → App → 新增 App，Bundle ID 選 `com.jofit.autobooking`（小工具 extension 不用另外建 App 紀錄，它會跟著主 App 一起上傳）。TestFlight 上傳前必須先有這筆紀錄。
 4. **建立 App Store Connect API Key**：App Store Connect → Users and Access → Integrations → App Store Connect API → 產生 Key，角色選 **App Manager**。下載 `.p8` 檔（只能下載一次，存好）。記下 Key ID 與 Issuer ID。
-5. 把 `.p8` 檔轉成 base64（在 Mac 或任何機器都可以）：
-   ```bash
-   base64 -i AuthKey_XXXXXXXXXX.p8 | tr -d '\n'
-   ```
-   Windows 上可用：`certutil -encode AuthKey_XXXXXXXXXX.p8 tmp.b64`（再手動去掉頭尾的 `-----BEGIN/END-----` 行）。
+5. 把 `.p8` 檔轉成 base64：
+   - **Mac / Linux**：
+     ```bash
+     base64 -i AuthKey_XXXXXXXXXX.p8 | tr -d '\n'
+     ```
+   - **Windows（PowerShell）**：直接讀檔案原始位元組轉 base64，不要用 `certutil -encode`——它會在頭尾加上 `-----BEGIN CERTIFICATE-----` 這種文字並用 CRLF 換行，很容易忘記清乾淨或清不乾淨，貼進 GitHub Secret 之後解碼出來的 `.p8` 會是壞的（CI 上 `xcodebuild` 會報 `Invalid authentication key credential` 這種不好懂的錯）。用這個指令，結果會直接複製到剪貼簿：
+     ```powershell
+     [Convert]::ToBase64String([IO.File]::ReadAllBytes("AuthKey_XXXXXXXXXX.p8")) | Set-Clipboard
+     ```
+     複製出來的字串直接貼進 `ASC_API_KEY_BASE64` 這個 Secret，不用再手動處理。
 6. **在 GitHub repo 設定 Secrets**（Settings → Secrets and variables → Actions）：
 
    | Secret 名稱 | 內容 |

@@ -36,7 +36,19 @@ jobs:
           API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
         run: |
           mkdir -p ~/private_keys
-          echo "$API_KEY_BASE64" | base64 --decode > ~/private_keys/AuthKey_${API_KEY_ID}.p8
+          KEY_PATH=~/private_keys/AuthKey_${API_KEY_ID}.p8
+          echo "$API_KEY_BASE64" | base64 --decode > "$KEY_PATH"
+
+          BYTES=$(wc -c < "$KEY_PATH" | tr -d ' ')
+          echo "Decoded .p8 key: $BYTES bytes"
+          if [ "$BYTES" -lt 100 ]; then
+            echo "::error::Decoded .p8 key is only $BYTES bytes — ASC_API_KEY_BASE64 is likely not a clean base64 encoding of the raw .p8 file (check for stray PEM header/footer lines or line breaks)."
+            exit 1
+          fi
+          if ! head -1 "$KEY_PATH" | grep -q "BEGIN PRIVATE KEY"; then
+            echo "::error::Decoded .p8 key does not start with '-----BEGIN PRIVATE KEY-----' — ASC_API_KEY_BASE64 secret looks malformed."
+            exit 1
+          fi
 
       - name: Archive
         env:
