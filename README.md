@@ -1,8 +1,15 @@
 # Jofit 自動報名 App
 
-一個 SwiftUI iOS App，直接對 Google 表單的 `formResponse` 端點送出 POST 請求來報名課程（不透過 WebView 模擬點擊，速度較快）。支援「快速一鍵送出」與「排程在指定時間自動送出」兩種模式。
+一個 SwiftUI iOS App，直接對 Google 表單的 `formResponse` 端點送出 POST 請求來報名課程（不透過 WebView 模擬點擊，速度較快）。
 
 目前串接的表單是 **Jofit 模擬表單**（測試用）。之後要換成正式表單時，打開新表單頁面原始碼搜尋 `entry.`，把 `Jofit/Services/FormSubmissionService.swift` 裡的網址與三個 `entry.*` ID 換掉即可。
+
+## 功能
+
+- **首次使用強制設定**：第一次打開 App 會擋一個全螢幕畫面，一定要填完姓名與員工編號才能進入（`Views/OnboardingView.swift`）。
+- **課程瀏覽 + 兩層篩選**：課程分頁可以篩「全部顯示／夜間（20:00 後）／非夜間（20:00 前）」，再篩「不顯示哪幾個星期幾」，並可選要看未來 4 週裡的哪幾週（各週會標出實際日期範圍）。
+- **預約＝自動送出排程**：點一堂課就是「預約」——表單規定只能在課程日前 6 天內報名，所以 App 會自動算出「課程日前 6 天的早上 8:00」當作送出時間；如果那個時間已經過了（表示課程本來就在 6 天內），就直接馬上送出，不用等。
+- **預約紀錄**：紀錄分頁依月份摺疊（點開才展開），已送出的顯示綠色、還在排程等待送出的顯示藍色、送出失敗的顯示紅色。
 
 ## 專案結構
 
@@ -11,15 +18,14 @@ project.yml                  # XcodeGen 專案定義（.xcodeproj 由 CI 自動�
 courses.json                 # 每週固定課表（依星期幾重複）— App 執行時透過網路抓這個檔案
 Jofit/
   JofitApp.swift
-  Models/Course.swift        # Course：某一堂課「這一週實際落在哪一天」的具體版本
-  Models/CourseTemplate.swift # CourseTemplate：courses.json 的每週重複樣板 + 換算日期邏輯
-  Models/SubmissionRecord.swift
+  Models/Course.swift         # Course：某一堂課「這一週實際落在哪一天」的具體版本
+  Models/CourseTemplate.swift # CourseTemplate：courses.json 的每週重複樣板 + 換算未來 4 週日期
+  Models/Reservation.swift    # Reservation：使用者的預約，含自動送出時間的計算規則
   Services/FormSubmissionService.swift   # 送出表單的網路請求
-  Services/SubmissionStore.swift         # 送出紀錄的本地儲存
-  Services/CourseStore.swift             # 從 courses.json 抓課表 + 本地快取 + 換算成本週日期
-  Services/ScheduleManager.swift         # 定時搶課邏輯
-  Services/UserSettings.swift            # 姓名/員工編號設定
-  Views/                      # 四個分頁：快速報名、排程搶課、紀錄、設定
+  Services/CourseStore.swift             # 從 courses.json 抓課表 + 本地快取 + 換算成未來 4 週的日期
+  Services/ReservationStore.swift        # 預約的完整生命週期：建立、排程通知、到點送出、本地儲存
+  Services/UserSettings.swift            # 姓名/員工編號設定 + 是否已完成首次設定
+  Views/                      # 課程／紀錄／設定 三個分頁 + 首次使用引導畫面
 .github/workflows/testflight.yml         # CI：build + 自動上傳 TestFlight
 ```
 
@@ -61,7 +67,7 @@ Jofit/
 https://raw.githubusercontent.com/jo1project/jofit.Mark2/main/courses.json
 ```
 
-`courses.json` 存的是**每週固定重複的課表**（例如「每週一 18:35 Zumba」），不是特定日期，因為健身房的課表本來就是照星期幾每週重複。App 拿到這份清單後，會自動幫每一筆算出「這個星期幾、落在本週哪一天」，只顯示落在表單允許預約範圍內（今天起 7 天內）的那一堂課——所以完全不用每週手動改日期，只有健身房真的調整了每週課表（新增/刪除/改時段）時才需要改這個檔案：
+`courses.json` 存的是**每週固定重複的課表**（例如「每週一 18:35 Zumba」），不是特定日期，因為健身房的課表本來就是照星期幾每週重複。App 拿到這份清單後，會自動幫每一筆換算出「未來 4 週，每一週各自落在哪一天」——所以完全不用每週手動改日期，只有健身房真的調整了每週課表（新增/刪除/改時段）時才需要改這個檔案：
 
 ```json
 [
@@ -78,10 +84,21 @@ https://raw.githubusercontent.com/jo1project/jofit.Mark2/main/courses.json
 - `Jofit/Models/CourseTemplate.swift` 裡的 `CourseTemplates.fallback` 是全新安裝、且第一次開啟時剛好沒網路（沒有任何快取可用）才會用到的內建預設清單，平常不會用到，只是保底。
 - 因為這個 repo 目前是 **public**，`courses.json` 的網址任何人拿得到連結都看得到內容（課程時段/名稱本身不算敏感資料，但如果之後想關閉這個能見度，需要改用其他有存取控制的來源，例如私有的小型 API）。
 
-## 排程搶課的限制（誠實說明）
+## 自動送出的可靠度，以及「App 被滑掉」的影響（誠實說明）
 
-iOS 為了省電，App 進入背景後系統會暫停計時器，所以**精準倒數只有在 App 開在前景時才保證準時**。排程模式會在開放時間前 2 分鐘跳出本地通知提醒你回到 App；如果 App 被系統中止或你太晚回來，倒數會用實際時鐘重新校正，一回到前景偵測到時間已過就會立刻送出，不會卡住，但沒辦法保證完全不會晚幾秒。目前沒有用 Push Notification 或背景任務去偽裝成「App 沒開也能準時」，因為 iOS 平台本來就無法保證那種精準度。
+App 目前是**純手機端、沒有後端伺服器**的設計，自動送出的原理是：
+
+1. 預約建立時算出「送出時間」（課程日前 6 天的早上 8:00，或如果已經在 6 天內就是現在）。
+2. App 在前景時，每秒會檢查一次有沒有預約的送出時間到了（`ReservationStore.processDue`），到了就馬上呼叫網路請求送出。
+3. App 每次從背景回到前景（打開 App）時，也會先做一次這個檢查——所以就算送出時間到的時候 App 沒開，只要你之後某個時間點打開 App，會立刻幫你補送，不會漏掉。
+4. 每筆預約會另外排一個**本機通知**在送出時間跳出來，提醒你打開 App。
+
+**關鍵限制**：iOS 完全不提供「App 沒在跑的時候，精準在某個時間點自動執行程式碼」這種能力，背景任務（BGTaskScheduler）只是「系統覺得方便的時候」才觸發，不保證準時，更不保證每天都會跑。**如果你把 App 從多工列表往上滑掉（force-quit），iOS 會直接關閉這個 App 的所有背景執行能力，直到你手動再打開它為止**——這是蘋果刻意的系統行為，沒有任何技術手段可以繞過。
+
+本機通知本身**不受這個限制影響**（就算 App 被滑掉，排程過的通知照樣會準時跳出來，因為它是交給系統排程的，不需要 App process 持續存在），但通知只是提醒，**不會自動幫你送出表單**——你還是要點一下通知把 App 打開，那一刻 App 才會真正發送網路請求。
+
+白話講：只要你在送出時間前後有打開一次 App（不用卡到秒，晚個幾十分鐘也沒關係），排程就會生效；如果你完全不理手機、通知也沒點，且中間又把 App 滑掉過，就不會送出。如果之後需要「完全不用碰手機也保證送出」等級的可靠度，就需要另外做一個雲端後端（例如 Firebase）在正確時間幫你送出——那會是一個要另外維護、且需要把姓名/員工編號這類個資存到雲端的獨立專案，目前先不做，有需要再討論。
 
 ## 已知未驗證事項
 
-這個環境沒有 Mac，所有 Swift 程式碼與 CI 設定都是照標準寫法產生、未實際跑過 `xcodebuild`。第一次在 GitHub Actions 跑之前，建議先用一個非正式的測試帳號跑一次「快速報名」，確認 entry ID 對應正確、且不會誤送到真正要處理報名的表單。
+這個環境沒有 Mac，所有 Swift 程式碼與 CI 設定都是照標準寫法產生、未實際跑過 `xcodebuild`。第一次在 GitHub Actions 跑之前，建議先用一個非正式的測試帳號選一堂 6 天內的課（會馬上送出），確認 entry ID 對應正確、且不會誤送到真正要處理報名的表單。

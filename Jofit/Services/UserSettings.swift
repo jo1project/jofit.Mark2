@@ -8,15 +8,23 @@ final class UserSettings: ObservableObject {
     @Published var employeeID: String {
         didSet { UserDefaults.standard.set(employeeID, forKey: Keys.employeeID) }
     }
+    /// Set once the user completes the first-launch onboarding screen. Kept separate from
+    /// `isComplete` so clearing a field later in Settings doesn't unexpectedly re-trigger
+    /// the full-screen onboarding gate.
+    @Published var hasOnboarded: Bool {
+        didSet { UserDefaults.standard.set(hasOnboarded, forKey: Keys.hasOnboarded) }
+    }
 
     private enum Keys {
         static let name = "settings.name"
         static let employeeID = "settings.employeeID"
+        static let hasOnboarded = "settings.hasOnboarded"
     }
 
     init() {
         name = UserDefaults.standard.string(forKey: Keys.name) ?? ""
         employeeID = UserDefaults.standard.string(forKey: Keys.employeeID) ?? ""
+        hasOnboarded = UserDefaults.standard.bool(forKey: Keys.hasOnboarded)
     }
 
     var isComplete: Bool {

@@ -1,12 +1,14 @@
 import Foundation
 import Combine
 
-/// Loads the weekly recurring course schedule from `courses.json` in the repo (raw
-/// GitHub URL) at launch and on pull-to-refresh, resolving each recurring slot to the one
-/// concrete date currently inside the form's booking window. Caches the raw templates on disk
-/// and falls back to a small bundled default list if no fetch has ever succeeded.
+/// Loads the weekly recurring course schedule from `courses.json` in the repo (raw GitHub URL)
+/// at launch and on pull-to-refresh, expanding each recurring slot into concrete instances for
+/// the next 4 weeks. Caches the raw templates on disk and falls back to a small bundled default
+/// list if no fetch has ever succeeded.
 @MainActor
 final class CourseStore: ObservableObject {
+    static let weeksAhead = 4
+
     @Published private(set) var courses: [Course] = []
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var isRefreshing = false
@@ -52,8 +54,8 @@ final class CourseStore: ObservableObject {
 
     private static func resolve(_ templates: [CourseTemplate]) -> [Course] {
         templates
-            .compactMap { $0.resolvedCourse() }
-            .sorted { ($0.month, $0.day, $0.time) < ($1.month, $1.day, $1.time) }
+            .flatMap { $0.resolvedCourses(weeksAhead: weeksAhead) }
+            .sorted { ($0.date, $0.time) < ($1.date, $1.time) }
     }
 
     private static func loadCache(from url: URL) -> [CourseTemplate]? {

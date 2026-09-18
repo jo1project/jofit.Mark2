@@ -1,9 +1,8 @@
 import Foundation
 
 /// A recurring weekly class slot, e.g. "every Monday at 18:35, Zumba" — `courses.json` stores
-/// these rather than one-off dates, because the gym's timetable repeats every week. `CourseStore`
-/// resolves each template into a concrete `Course` for the one date that currently falls inside
-/// the form's 7-day booking window.
+/// these rather than one-off dates, because the gym's timetable repeats every week.
+/// `CourseStore` expands each template into concrete `Course` instances, one per upcoming week.
 struct CourseTemplate: Codable {
     let id: String
     let weekday: String
@@ -15,16 +14,20 @@ struct CourseTemplate: Codable {
     ]
 
     /// Every weekday appears exactly once in any 7 consecutive days, so "the next date matching
-    /// this weekday, counting today" always lands inside the form's today...today+6 booking
-    /// window — that's the one instance worth showing.
-    func resolvedCourse(from today: Date = Date(), calendar: Calendar = .current) -> Course? {
-        guard let targetWeekday = Self.weekdayNumbers[weekday] else { return nil }
-        let todayWeekday = calendar.component(.weekday, from: today)
-        let offset = (targetWeekday - todayWeekday + 7) % 7
-        guard let date = calendar.date(byAdding: .day, value: offset, to: today) else { return nil }
-        let comps = calendar.dateComponents([.month, .day], from: date)
-        guard let month = comps.month, let day = comps.day else { return nil }
-        return Course(id: "\(id)_\(month)-\(day)", month: month, day: day, weekday: weekday, time: time, name: name)
+    /// this weekday, counting today" is week 0; adding multiples of 7 gives the following weeks.
+    func resolvedCourses(weeksAhead: Int, from today: Date = Date(), calendar: Calendar = .current) -> [Course] {
+        guard let targetWeekday = Self.weekdayNumbers[weekday] else { return [] }
+        let startOfToday = calendar.startOfDay(for: today)
+        let todayWeekday = calendar.component(.weekday, from: startOfToday)
+        let firstOffset = (targetWeekday - todayWeekday + 7) % 7
+
+        return (0..<weeksAhead).compactMap { week -> Course? in
+            let totalOffset = firstOffset + week * 7
+            guard let date = calendar.date(byAdding: .day, value: totalOffset, to: startOfToday) else { return nil }
+            let comps = calendar.dateComponents([.year, .month, .day], from: date)
+            let stamp = String(format: "%04d%02d%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
+            return Course(id: "\(id)_\(stamp)", date: date, time: time, name: name)
+        }
     }
 }
 
