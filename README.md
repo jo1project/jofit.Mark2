@@ -8,12 +8,14 @@
 
 ```
 project.yml                  # XcodeGen 專案定義（.xcodeproj 由 CI 自動產生，不進版控）
+courses.json                 # 課程清單的真正來源 — App 執行時透過網路抓這個檔案
 Jofit/
   JofitApp.swift
-  Models/Course.swift        # 硬編碼的課程清單 — 課表更新時改這裡
+  Models/Course.swift        # Course 型別 + 一份離線用的內建預設清單
   Models/SubmissionRecord.swift
   Services/FormSubmissionService.swift   # 送出表單的網路請求
   Services/SubmissionStore.swift         # 送出紀錄的本地儲存
+  Services/CourseStore.swift             # 從 courses.json 抓課表 + 本地快取
   Services/ScheduleManager.swift         # 定時搶課邏輯
   Services/UserSettings.swift            # 姓名/員工編號設定
   Views/                      # 四個分頁：快速報名、排程搶課、紀錄、設定
@@ -52,7 +54,26 @@ Jofit/
 
 ## 更新課程清單
 
-編輯 `Jofit/Models/Course.swift` 裡的 `Courses.all` 陣列，格式要跟表單要求的一致（範例：`1/16 週六 1120 燃脂泰拳`，日期需兩位數如 `9/01`）。改完 commit + push 到 `main`，CI 會自動出新的 TestFlight 版本。
+課程清單**不需要改程式碼、不需要出新版 App**。App 每次開啟（以及在課程列表下拉重新整理）都會即時抓取：
+
+```
+https://raw.githubusercontent.com/jo1project/jofit.Mark2/main/courses.json
+```
+
+要更新課表，直接編輯 repo 根目錄的 `courses.json`（可以在 GitHub 網頁上點檔案的鉛筆圖示直接改，不用 clone），push 到 `main` 即可，幾秒內下次開 App 或下拉重新整理就會拿到新清單。格式要跟表單要求的一致（範例：`1/16 週六 1120 燃脂泰拳`，日期需兩位數如 `9/01`），每筆需要一個不重複的 `id`：
+
+```json
+[
+  { "id": "2026-01-16-1120-muaythai", "month": 1, "day": 16, "weekday": "週六", "time": "1120", "name": "燃脂泰拳" }
+]
+```
+
+因為 `courses.json` 不在 `.github/workflows/testflight.yml` 監看的 `Jofit/**`、`project.yml` 路徑內，改這個檔案**不會**觸發 TestFlight 重新建置 —— 這是刻意設計的，課表更新和 App 版本完全脫鉤。
+
+幾個實作細節：
+- App 會把抓到的清單存一份在本機（`courses_cache.json`），下次開啟時如果剛好沒網路，會先顯示上次抓到的快取，並在畫面下方顯示錯誤訊息。
+- `Jofit/Models/Course.swift` 裡的 `Courses.fallback` 是全新安裝、且第一次開啟時剛好沒網路（沒有任何快取可用）才會用到的內建預設清單，平常不會用到，只是保底。
+- 因為這個 repo 目前是 **public**，`courses.json` 的網址任何人拿得到連結都看得到內容（課程時段/名稱本身不算敏感資料，但如果之後想關閉這個能見度，需要改用其他有存取控制的來源，例如私有的小型 API）。
 
 ## 排程搶課的限制（誠實說明）
 

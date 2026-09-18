@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject private var courseStore: CourseStore
+
     var body: some View {
         TabView {
             QuickSubmitView()
@@ -11,6 +13,9 @@ struct ContentView: View {
                 .tabItem { Label("紀錄", systemImage: "clock.arrow.circlepath") }
             SettingsView()
                 .tabItem { Label("設定", systemImage: "gearshape") }
+        }
+        .task {
+            await courseStore.refresh()
         }
     }
 }

@@ -4,16 +4,21 @@ struct ScheduleView: View {
     @EnvironmentObject private var settings: UserSettings
     @EnvironmentObject private var store: SubmissionStore
     @EnvironmentObject private var scheduler: ScheduleManager
-    @State private var selectedCourse: Course = Courses.all[0]
+    @EnvironmentObject private var courseStore: CourseStore
+    @State private var selectedCourse: Course?
     @State private var fireDate: Date = Date().addingTimeInterval(60)
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("選擇課程") {
-                    Picker("課程", selection: $selectedCourse) {
-                        ForEach(Courses.all) { course in
-                            Text(course.submissionText).tag(course)
+                    if courseStore.courses.isEmpty {
+                        ProgressView("課表載入中…")
+                    } else {
+                        Picker("課程", selection: $selectedCourse) {
+                            ForEach(courseStore.courses) { course in
+                                Text(course.submissionText).tag(Optional(course))
+                            }
                         }
                     }
                 }
@@ -33,9 +38,10 @@ struct ScheduleView: View {
                 } else {
                     Section {
                         Button("開始排程") {
-                            scheduler.schedule(course: selectedCourse, fireDate: fireDate)
+                            guard let course = selectedCourse else { return }
+                            scheduler.schedule(course: course, fireDate: fireDate)
                         }
-                        .disabled(!settings.isComplete)
+                        .disabled(!settings.isComplete || selectedCourse == nil)
                     }
                 }
 
@@ -53,14 +59,25 @@ struct ScheduleView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .refreshable {
+                await courseStore.refresh()
+            }
             .navigationTitle("排程搶課")
             .onAppear {
+                if selectedCourse == nil {
+                    selectedCourse = courseStore.courses.first
+                }
                 scheduler.setFireHandler { course in
                     Task {
                         let record = await store.submit(course: course, name: settings.name, employeeID: settings.employeeID, mode: .scheduled)
                         scheduler.lastResult = record
                         scheduler.pendingJob = nil
                     }
+                }
+            }
+            .onChange(of: courseStore.courses) { _, newCourses in
+                if selectedCourse == nil {
+                    selectedCourse = newCourses.first
                 }
             }
         }

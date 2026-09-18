@@ -3,6 +3,7 @@ import SwiftUI
 struct QuickSubmitView: View {
     @EnvironmentObject private var settings: UserSettings
     @EnvironmentObject private var store: SubmissionStore
+    @EnvironmentObject private var courseStore: CourseStore
     @State private var selectedCourse: Course?
     @State private var isSubmitting = false
     @State private var resultMessage: String?
@@ -17,20 +18,32 @@ struct QuickSubmitView: View {
                         }
                     }
                 }
-                Section("選擇課程") {
-                    ForEach(Courses.all) { course in
-                        Button {
-                            selectedCourse = course
-                        } label: {
-                            HStack {
-                                Text(course.submissionText)
-                                Spacer()
-                                if selectedCourse?.id == course.id {
-                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                Section {
+                    if courseStore.courses.isEmpty {
+                        ProgressView("課表載入中…")
+                    } else {
+                        ForEach(courseStore.courses) { course in
+                            Button {
+                                selectedCourse = course
+                            } label: {
+                                HStack {
+                                    Text(course.submissionText)
+                                    Spacer()
+                                    if selectedCourse?.id == course.id {
+                                        Image(systemName: "checkmark").foregroundStyle(.tint)
+                                    }
                                 }
                             }
+                            .foregroundStyle(.primary)
                         }
-                        .foregroundStyle(.primary)
+                    }
+                } header: {
+                    Text("選擇課程")
+                } footer: {
+                    if let lastUpdated = courseStore.lastUpdated {
+                        Text("課表更新於 \(lastUpdated.formatted(date: .abbreviated, time: .shortened))，下拉可重新整理")
+                    } else if let lastError = courseStore.lastError {
+                        Text(lastError)
                     }
                 }
                 if let resultMessage {
@@ -38,6 +51,9 @@ struct QuickSubmitView: View {
                         Text(resultMessage)
                     }
                 }
+            }
+            .refreshable {
+                await courseStore.refresh()
             }
             .navigationTitle("快速報名")
             .safeAreaInset(edge: .bottom) {
