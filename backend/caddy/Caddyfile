@@ -1,0 +1,6 @@
+{$DOMAIN} {
+	reverse_proxy api:8000
+	tls {
+		dns duckdns {$DUCKDNS_TOKEN}
+	}
+}

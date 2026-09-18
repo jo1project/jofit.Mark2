@@ -1,0 +1,28 @@
+services:
+  api:
+    build: ./api
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - api-data:/data
+      - ./apns_key.p8:/run/secrets/apns_key.p8:ro
+    expose:
+      - "8000"
+
+  caddy:
+    build: ./caddy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    env_file: .env
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+volumes:
+  api-data:
+  caddy-data:
+  caddy-config:

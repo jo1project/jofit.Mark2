@@ -1,0 +1,5 @@
+.env
+apns_key.p8
+__pycache__/
+*.pyc
+.test_data/
