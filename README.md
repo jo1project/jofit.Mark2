@@ -60,7 +60,7 @@ backend/                     # 跑在使用者 VPS 上的後端，見下面「�
 2. **建立 App Group**：同一個 Identifiers 頁面切到 App Groups → 新增一個，ID 填 `group.com.jofit.autobooking`。回到剛剛的兩個 Bundle ID，各自把 App Groups 這項能力打開，並勾選剛建立的這個群組——主 App 和小工具就是靠這個共用容器交換「今天有沒有課」的資料。（自動簽章理論上可以自己建立/更新 App ID 和 Provisioning Profile，但 App Group 這種「能力」本身通常還是要手動建立一次，這步不能省。）
 3. **開啟 Push Notifications 能力**：在 `com.jofit.autobooking` 這個 Bundle ID 的 Capabilities 列表勾選「Push Notifications」。這個是單純的能力開關（不像 App Group 需要另外建立資源），自動簽章通常可以自己打開，但如果第一次建置在簽章那步失敗，先來這裡確認有沒有打勾。
 4. **建立 App Store Connect 上的 App 紀錄**：App Store Connect → App → 新增 App，Bundle ID 選 `com.jofit.autobooking`（小工具 extension 不用另外建 App 紀錄，它會跟著主 App 一起上傳）。TestFlight 上傳前必須先有這筆紀錄。
-5. **建立 App Store Connect API Key**：App Store Connect → Users and Access → Integrations → App Store Connect API → 產生 Key，角色選 **App Manager**。下載 `.p8` 檔（只能下載一次，存好）。記下 Key ID 與 Issuer ID。
+5. **建立 App Store Connect API Key**：App Store Connect → Users and Access → Integrations → App Store Connect API → 產生 Key，角色要選 **Admin**（一開始選過 App Manager，結果 `xcodebuild -exportArchive` 在建立 Provisioning Profile 那步報 `Cloud signing permission error`——App Manager 權限不夠讓 CI 自動建立/管理簽署憑證與 Profile，換成 Admin 才過）。下載 `.p8` 檔（只能下載一次，存好）。記下 Key ID 與 Issuer ID。
 6. 把 `.p8` 檔轉成 base64：
    - **Mac / Linux**：
      ```bash
