@@ -70,31 +70,63 @@ async def main():
     assert len(fake_submit_form.calls) == 1, f"expected exactly 1 submit, got {len(fake_submit_form.calls)}"
     print("PASS: overlapping process_due sweeps only submitted once")
 
-    # Global safety cap: no more than MAX_ATTEMPTS_PER_WINDOW real POSTs to Google Forms within
-    # ATTEMPT_WINDOW, across every reservation combined, regardless of what triggers them.
-    # The two scenarios above already logged 2 real attempts of their own — clear those first
-    # so this section starts from a clean slate.
+    # Safety cap is scoped per (employee, class date, class name) — starting clean.
     async with storage.connect() as db:
         await db.execute("DELETE FROM submission_attempts")
         await db.commit()
-    fake_submit_form.calls.clear()
-    google_form.submit_form = fake_submit_form
     assert reservations.MAX_ATTEMPTS_PER_WINDOW == 2, "test assumes the cap is 2"
+    cap_date = (date.today() + timedelta(days=2)).isoformat()
 
-    results = []
+    # A: max-attempts branch — every attempt fails (never "succeeds"), so the 3rd attempt for
+    # the same (employee, date, name) should be blocked on attempt count, not on already-succeeded.
+    async def always_fail(name, employee_id, course_text):
+        fake_submit_form.calls.append((name, employee_id, course_text))
+        return 400
+
+    google_form.submit_form = always_fail
+    fake_submit_form.calls.clear()
+
+    results_a = []
     for i in range(3):
-        course_date = (date.today() + timedelta(days=2)).isoformat()
-        results.append(await reservations.create_reservation(
-            course_id=f"cap-test-{i}", course_date=course_date, course_time="0900",
-            course_name=f"上限測試{i}", reporter_name="測試", employee_id="E004",
+        results_a.append(await reservations.create_reservation(
+            course_id=f"cap-a-{i}", course_date=cap_date, course_time="0900",
+            course_name="上限測試A", reporter_name="測試", employee_id="E004",
         ))
+    assert results_a[0]["status"] == "failed" and results_a[0]["http_status"] == 400, results_a[0]
+    assert results_a[1]["status"] == "failed" and results_a[1]["http_status"] == 400, results_a[1]
+    assert results_a[2]["status"] == "failed" and results_a[2]["http_status"] is None, results_a[2]
+    assert "已經嘗試送出" in (results_a[2]["last_error"] or ""), results_a[2]
+    assert len(fake_submit_form.calls) == 2, f"expected exactly 2 real attempts, got {len(fake_submit_form.calls)}"
+    print("PASS: 3rd attempt for the same employee+day+class is blocked (max attempts)")
 
-    assert results[0]["status"] == "submitted", results[0]
-    assert results[1]["status"] == "submitted", results[1]
-    assert results[2]["status"] == "failed", results[2]
-    assert "安全上限" in (results[2]["last_error"] or ""), results[2]
-    assert len(fake_submit_form.calls) == 2, f"expected exactly 2 real submits, got {len(fake_submit_form.calls)}"
-    print("PASS: 3rd submission within the window is blocked by the global safety cap")
+    # B: already-succeeded branch — first attempt succeeds, so a *second* attempt for the same
+    # (employee, date, name) should be blocked immediately, without needing to reach the count cap.
+    google_form.submit_form = fake_submit_form
+    fake_submit_form.calls.clear()
+
+    result_b1 = await reservations.create_reservation(
+        course_id="cap-b-0", course_date=cap_date, course_time="1000",
+        course_name="上限測試B", reporter_name="測試", employee_id="E005",
+    )
+    result_b2 = await reservations.create_reservation(
+        course_id="cap-b-1", course_date=cap_date, course_time="1000",
+        course_name="上限測試B", reporter_name="測試", employee_id="E005",
+    )
+    assert result_b1["status"] == "submitted", result_b1
+    assert result_b2["status"] == "failed", result_b2
+    assert "已經成功送出過" in (result_b2["last_error"] or ""), result_b2
+    assert len(fake_submit_form.calls) == 1, f"expected exactly 1 real submit, got {len(fake_submit_form.calls)}"
+    print("PASS: a second attempt after one already succeeded is blocked immediately")
+
+    # C: scoping — a *different* employee/class isn't affected by A's or B's attempt history.
+    fake_submit_form.calls.clear()
+    result_c = await reservations.create_reservation(
+        course_id="cap-c-0", course_date=cap_date, course_time="1100",
+        course_name="上限測試C", reporter_name="測試", employee_id="E006",
+    )
+    assert result_c["status"] == "submitted", result_c
+    assert len(fake_submit_form.calls) == 1, fake_submit_form.calls
+    print("PASS: a different employee+class combination is unaffected by others' attempt history")
 
 
 asyncio.run(main())

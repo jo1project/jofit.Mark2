@@ -27,13 +27,24 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 CREATE TABLE IF NOT EXISTS submission_attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  attempted_at TEXT NOT NULL
+  employee_id TEXT NOT NULL,
+  course_date TEXT NOT NULL,
+  course_name TEXT NOT NULL,
+  attempted_at TEXT NOT NULL,
+  succeeded INTEGER NOT NULL DEFAULT 0
 );
 """
 
 
 async def init_db() -> None:
     async with aiosqlite.connect(DB_PATH) as db:
+        # Migrate: the original submission_attempts schema (just id+attempted_at, a global
+        # counter) is incompatible with the per-employee/day/course scoped one — safe to drop,
+        # since those rows only ever fed a counter, never referenced by anything else.
+        cursor = await db.execute("PRAGMA table_info(submission_attempts)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if columns and "employee_id" not in columns:
+            await db.execute("DROP TABLE submission_attempts")
         await db.executescript(SCHEMA)
         await db.commit()
 

@@ -16,15 +16,17 @@ from .storage import connect
 # submit attempts at once.
 _submit_lock = asyncio.Lock()
 
-# Hard global safety cap, independent of the per-reservation guards above: no more than this
-# many real POSTs to Google Forms — successful or not, this counts *attempts* since Google
-# gives no reliable success signal to distinguish them — in any rolling window of this length,
-# full stop, across every reservation combined. Ordinary usage should never come close (the
-# form itself only allows booking within a 6-day window), so this exists purely as a backstop
-# against a runaway bug causing a flood of real submissions. Self-healing: once an attempt ages
-# out of the window it stops counting, so no manual reset is needed — but it means a genuine
-# runaway bug is mathematically capped at this many real submissions per window, forever, no
-# matter how long the bug goes unnoticed.
+# Safety cap, independent of the per-reservation guards above: for a given (employee, class
+# date, class name) — i.e. "this person's booking for this specific class on this specific
+# day" — no more than this many real POSTs to Google Forms in any rolling window of this
+# length, successful or not (this counts *attempts*, since Google gives no reliable success
+# signal to distinguish them). Scoped per employee/day/class rather than globally, so booking
+# one class never eats into the attempt budget for a different one. And once any attempt for
+# that combination has actually succeeded, no further attempt is ever made for it again,
+# regardless of the window — there's nothing left to retry. Self-healing: once an attempt ages
+# out of the window it stops counting toward the cap, so no manual reset is needed — but it
+# means a genuine runaway bug is mathematically capped at this many real submissions per
+# window, per (employee, day, class), forever, no matter how long the bug goes unnoticed.
 MAX_ATTEMPTS_PER_WINDOW = 2
 ATTEMPT_WINDOW = timedelta(days=6)
 
@@ -135,8 +137,8 @@ async def _submit(reservation_id: str) -> dict[str, Any]:
     """Atomically claims the reservation (pending -> submitting) before doing anything that
     awaits, so two overlapping sweeps (or a request landing at the exact fire moment) can never
     both submit the same reservation — the UPDATE...WHERE status='pending' only succeeds once.
-    Also enforces the global MAX_ATTEMPTS_PER_WINDOW cap: claiming and the attempt-count
-    check+log happen under the same lock so the count itself can't be raced either."""
+    Also enforces the per-(employee, day, class) MAX_ATTEMPTS_PER_WINDOW cap: claiming and the
+    attempt-count check+log happen under the same lock so the count itself can't be raced."""
     async with _submit_lock:
         async with connect() as db:
             cursor = await db.execute(
@@ -154,20 +156,41 @@ async def _submit(reservation_id: str) -> dict[str, Any]:
 
         now = datetime.now(TAIPEI).replace(microsecond=0)
         cutoff = (now - ATTEMPT_WINDOW).isoformat()
+        scope = (row["employee_id"], row["course_date"], row["course_name"])
         async with connect() as db:
             cursor = await db.execute(
-                "SELECT COUNT(*) AS n FROM submission_attempts WHERE attempted_at >= ?", (cutoff,)
+                """SELECT COUNT(*) AS n FROM submission_attempts
+                   WHERE employee_id = ? AND course_date = ? AND course_name = ? AND succeeded = 1""",
+                scope,
+            )
+            already_succeeded = (await cursor.fetchone())["n"] > 0
+
+            cursor = await db.execute(
+                """SELECT COUNT(*) AS n FROM submission_attempts
+                   WHERE employee_id = ? AND course_date = ? AND course_name = ? AND attempted_at >= ?""",
+                (*scope, cutoff),
             )
             recent_attempts = (await cursor.fetchone())["n"]
-            blocked = recent_attempts >= MAX_ATTEMPTS_PER_WINDOW
-            if not blocked:
-                await db.execute(
-                    "INSERT INTO submission_attempts (attempted_at) VALUES (?)", (now.isoformat(),)
+
+            blocked_reason = None
+            if already_succeeded:
+                blocked_reason = "already_succeeded"
+            elif recent_attempts >= MAX_ATTEMPTS_PER_WINDOW:
+                blocked_reason = "max_attempts"
+
+            attempt_id = None
+            if blocked_reason is None:
+                cursor = await db.execute(
+                    """INSERT INTO submission_attempts
+                       (employee_id, course_date, course_name, attempted_at, succeeded)
+                       VALUES (?, ?, ?, ?, 0)""",
+                    (*scope, now.isoformat()),
                 )
                 await db.commit()
+                attempt_id = cursor.lastrowid
 
-    if blocked:
-        return await _mark_blocked(reservation_id)
+    if blocked_reason is not None:
+        return await _mark_blocked(reservation_id, blocked_reason)
 
     course_text = submission_text(
         date.fromisoformat(row["course_date"]), row["course_time"], row["course_name"]
@@ -191,6 +214,8 @@ async def _submit(reservation_id: str) -> dict[str, Any]:
                WHERE id = ?""",
             (status, submitted_at, http_status, last_error, reservation_id),
         )
+        if status == "submitted" and attempt_id is not None:
+            await db.execute("UPDATE submission_attempts SET succeeded = 1 WHERE id = ?", (attempt_id,))
         await db.commit()
         cursor = await db.execute("SELECT * FROM reservations WHERE id = ?", (reservation_id,))
         row = await cursor.fetchone()
@@ -199,14 +224,17 @@ async def _submit(reservation_id: str) -> dict[str, Any]:
     return _row_to_dict(row)
 
 
-async def _mark_blocked(reservation_id: str) -> dict[str, Any]:
-    """Hit the MAX_ATTEMPTS_PER_WINDOW safety cap — refuse to submit, and make sure it's loud
-    (marked failed with an explicit reason, plus a push) rather than silently dropped, since
-    hitting this at all is unusual enough to be worth a human's attention."""
-    message = (
-        f"已達到 {ATTEMPT_WINDOW.days} 天內最多送出 {MAX_ATTEMPTS_PER_WINDOW} 次的安全上限，"
-        "這筆沒有送出，請確認沒有異常後在 App 裡手動處理"
-    )
+async def _mark_blocked(reservation_id: str, reason: str) -> dict[str, Any]:
+    """Hit the safety cap — refuse to submit, and make sure it's loud (marked failed with an
+    explicit reason, plus a push) rather than silently dropped, since hitting this at all is
+    unusual enough to be worth a human's attention."""
+    if reason == "already_succeeded":
+        message = "這位員工這一天的這堂課先前已經成功送出過了，不會重複送出"
+    else:
+        message = (
+            f"這位員工這一天這堂課，{ATTEMPT_WINDOW.days} 天內已經嘗試送出 {MAX_ATTEMPTS_PER_WINDOW} 次，"
+            "這筆沒有送出，請確認沒有異常後在 App 裡手動處理"
+        )
     async with connect() as db:
         await db.execute(
             "UPDATE reservations SET status = 'failed', last_error = ? WHERE id = ?",
