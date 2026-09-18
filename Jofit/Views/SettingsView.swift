@@ -12,7 +12,7 @@ struct SettingsView: View {
                         .keyboardType(.numbersAndPunctuation)
                 }
 
-                Section("後端連線") {
+                Section {
                     TextField("後端網址", text: $settings.backendURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
@@ -20,6 +20,8 @@ struct SettingsView: View {
                     SecureField("授權金鑰", text: $settings.backendToken)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                } header: {
+                    Text("後端連線")
                 } footer: {
                     Text("預約的排程與送出都是由這個後端伺服器負責，跟手機有沒有開、App 有沒有被關掉無關。授權金鑰只會存在手機裡，不會出現在程式碼中。")
                 }
