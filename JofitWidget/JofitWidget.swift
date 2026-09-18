@@ -1,5 +1,6 @@
 import WidgetKit
 import SwiftUI
+import UIKit
 
 struct JofitEntry: TimelineEntry {
     let date: Date
@@ -44,28 +45,24 @@ struct JofitWidgetView: View {
         VStack(spacing: 6) {
             Text(dateText(entry.date))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.textSecondary)
 
             if let courseName = entry.courseName {
-                Image("ExerciseDay")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(height: 60)
+                PixelArt(name: "ExerciseDay", targetHeight: 60)
                 Text(courseName)
                     .font(.headline)
+                    .foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
             } else {
-                Image("RestDay")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(height: 60)
+                PixelArt(name: "RestDay", targetHeight: 60)
                 Text("今天休息")
                     .font(.headline)
+                    .foregroundStyle(Theme.ink)
             }
         }
         .padding()
-        .containerBackground(.fill.tertiary, for: .widget)
+        .containerBackground(for: .widget) { Theme.background }
     }
 
     private func dateText(_ date: Date) -> String {
@@ -73,6 +70,26 @@ struct JofitWidgetView: View {
         formatter.locale = Locale(identifier: "zh_Hant_TW")
         formatter.dateFormat = "M/d（EEEE）"
         return formatter.string(from: date)
+    }
+}
+
+/// Pixel art drawn without smoothing. The assets are 1x PNGs at native art resolution, so the
+/// scale is snapped to a whole number of device pixels per art pixel (nearest to `targetHeight`).
+struct PixelArt: View {
+    let name: String
+    let targetHeight: CGFloat
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        let sourceHeight = UIImage(named: name)?.size.height ?? 0
+        let factor = sourceHeight > 0 ? max(1, (targetHeight * displayScale / sourceHeight).rounded()) : 1
+        let height = sourceHeight > 0 ? sourceHeight * factor / displayScale : targetHeight
+        Image(name)
+            .resizable()
+            .interpolation(.none)
+            .antialiased(false)
+            .aspectRatio(contentMode: .fit)
+            .frame(height: height)
     }
 }
 

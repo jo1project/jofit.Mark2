@@ -91,8 +91,7 @@ struct HistoryView: View {
                 }
                 .padding(.horizontal, 16)
             }
-            // Room for the floating tab bar so the last card can scroll fully above it.
-            .contentMargins(.bottom, 100, for: .scrollContent)
+            .contentMargins(.bottom, 24, for: .scrollContent)
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("預約紀錄")
             .refreshable {

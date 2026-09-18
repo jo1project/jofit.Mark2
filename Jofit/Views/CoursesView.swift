@@ -67,7 +67,7 @@ struct CoursesView: View {
             ScrollView {
                 // Cards carry their own horizontal padding (not the stack) so the pinned
                 // weekday headers can paint edge to edge and hide cards scrolling under them.
-                LazyVStack(alignment: .leading, spacing: 12, pinnedViews: [.sectionHeaders]) {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     if !settings.isComplete {
                         banner("請先到「設定」分頁填寫姓名與員工編號", color: Theme.textSecondary)
                     }
@@ -77,18 +77,21 @@ struct CoursesView: View {
                     activeFilterRow
                     ForEach(groupedByWeekday, id: \.weekday) { group in
                         Section {
-                            ForEach(group.templates) { template in
-                                templateCard(template)
-                                    .padding(.horizontal, 16)
+                            VStack(spacing: 12) {
+                                ForEach(group.templates) { template in
+                                    templateCard(template)
+                                        .padding(.horizontal, 16)
+                                }
                             }
+                            // 20 here + 4 of the next header's top padding = 24pt before the next weekday.
+                            .padding(.bottom, 20)
                         } header: {
                             weekdayHeader(group.weekday)
                         }
                     }
                 }
             }
-            // Room for the floating tab bar so the last card can scroll fully above it.
-            .contentMargins(.bottom, 100, for: .scrollContent)
+            .contentMargins(.bottom, 24, for: .scrollContent)
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("課程")
             .toolbar {
@@ -158,6 +161,7 @@ struct CoursesView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .cardBackground()
             .padding(.horizontal, 16)
+            .padding(.bottom, 12)
     }
 
     /// Summary of non-default filters, shown under the title. Hidden when nothing is filtered.
@@ -176,6 +180,7 @@ struct CoursesView: View {
                 }
                 .padding(.horizontal, 16)
             }
+            .padding(.bottom, 12)
         }
     }
 
@@ -184,7 +189,8 @@ struct CoursesView: View {
             .font(.subheadline.weight(Theme.Weight.title))
             .foregroundStyle(Theme.textSecondary)
             .padding(.horizontal, 20)
-            .padding(.vertical, 8)
+            .padding(.top, 4)
+            .padding(.bottom, 8) // 8pt between the title and its first card
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.background)
     }
@@ -225,13 +231,18 @@ struct CoursesView: View {
     private func templateCard(_ group: TemplateGroup) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             // Time is small, secondary and fixed-width digits; the name is big and heavy.
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(Course.displayTime(group.time))
-                    .font(.subheadline.weight(Theme.Weight.label).monospacedDigit())
-                    .foregroundStyle(Theme.textSecondary)
-                Text(group.name)
-                    .font(.title3.weight(Theme.Weight.title))
-                    .foregroundStyle(Theme.ink)
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(CourseCategory(courseName: group.name).color)
+                    .frame(width: 4, height: 24)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(Course.displayTime(group.time))
+                        .font(.subheadline.weight(Theme.Weight.label).monospacedDigit())
+                        .foregroundStyle(Theme.textSecondary)
+                    Text(group.name)
+                        .font(.title3.weight(Theme.Weight.title))
+                        .foregroundStyle(Theme.ink)
+                }
             }
             // No coach / venue line: `courses.json` has no such fields yet.
             HStack(spacing: 8) {
@@ -240,15 +251,8 @@ struct CoursesView: View {
                 }
             }
         }
-        .padding(.vertical, 14)
-        .padding(.leading, 20)
-        .padding(.trailing, 14)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(CourseCategory(courseName: group.name).color)
-                .frame(width: 5)
-        }
         .cardBackground()
     }
 

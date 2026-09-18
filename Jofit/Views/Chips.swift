@@ -1,6 +1,8 @@
 import SwiftUI
 
 /// Visual state of one bookable date (one week's occurrence of a class).
+/// idle: hollow circle on chip · selected: gold + check · scheduled: gold + clock ·
+/// submitted: chip color + brown check, greyed date (no solid dark — that's for the button).
 enum DateChipState {
     case idle, selected, scheduled, submitted, failed
 
@@ -17,40 +19,35 @@ enum DateChipState {
         switch self {
         case .idle: return Theme.textSecondary
         case .selected: return Theme.onBrand
-        case .scheduled: return Theme.accent
-        case .submitted: return Theme.onInk
+        case .scheduled: return Theme.onBrand
+        case .submitted: return Theme.checkBrown
         case .failed: return Theme.danger
         }
     }
 
     fileprivate var textColor: Color {
         switch self {
-        case .selected: return Theme.onBrand
-        case .submitted: return Theme.onInk
+        case .selected, .scheduled: return Theme.onBrand
+        case .submitted: return Theme.textSecondary
         default: return Theme.ink
         }
     }
 
     fileprivate var fill: Color {
         switch self {
-        case .idle, .scheduled: return Theme.chipIdle
-        case .selected: return Theme.brand
-        case .submitted: return Theme.inkFill
+        case .idle, .submitted: return Theme.chipIdle
+        case .selected, .scheduled: return Theme.brand
         case .failed: return Theme.danger.opacity(0.12)
         }
     }
 
     fileprivate var border: Color {
         switch self {
-        case .idle: return Theme.hairline
-        case .selected: return .clear
-        case .scheduled: return Theme.brand
-        case .submitted: return .clear
+        case .idle, .submitted: return Theme.hairline
+        case .selected, .scheduled: return .clear
         case .failed: return Theme.danger
         }
     }
-
-    fileprivate var borderWidth: CGFloat { self == .scheduled ? 2 : 1 }
 
     fileprivate var spokenName: String {
         switch self {
@@ -82,7 +79,7 @@ struct DateChip: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(state.fill, in: shape)
-            .overlay(shape.strokeBorder(state.border, lineWidth: state.borderWidth))
+            .overlay(shape.strokeBorder(state.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(text)，\(state.spokenName)")
@@ -142,6 +139,7 @@ struct StatusPill: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .background(Capsule().fill(fill))
+            .overlay(Capsule().strokeBorder(status == .submitted ? Theme.hairline : .clear, lineWidth: 1))
     }
 
     private var title: String {
@@ -156,7 +154,7 @@ struct StatusPill: View {
     private var fill: Color {
         switch status {
         case .pending, .submitting: return Theme.brand
-        case .submitted: return Theme.inkFill
+        case .submitted: return Theme.chipIdle
         case .failed: return Theme.danger
         }
     }
@@ -164,7 +162,8 @@ struct StatusPill: View {
     private var foreground: Color {
         switch status {
         case .pending, .submitting: return Theme.onBrand
-        case .submitted, .failed: return Theme.onInk
+        case .submitted: return Theme.checkBrown
+        case .failed: return Theme.onInk
         }
     }
 }
