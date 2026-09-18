@@ -134,9 +134,18 @@ struct CoursesView: View {
         .foregroundStyle(.primary)
         .disabled(reservation != nil || !settings.isComplete)
         .swipeActions {
-            if let reservation, reservation.status == .pending {
-                Button("取消", role: .destructive) {
-                    reservationStore.cancel(reservation)
+            if let reservation {
+                switch reservation.status {
+                case .pending:
+                    Button("取消", role: .destructive) {
+                        reservationStore.cancel(reservation)
+                    }
+                case .failed:
+                    Button("移除", role: .destructive) {
+                        reservationStore.cancel(reservation)
+                    }
+                case .submitting, .submitted:
+                    EmptyView()
                 }
             }
         }
@@ -162,6 +171,10 @@ struct CoursesView: View {
             Text("已排程，將於 \(reservation.fireDate.formatted(date: .abbreviated, time: .shortened)) 自動送出")
                 .font(.caption)
                 .foregroundStyle(.blue)
+        case .submitting:
+            Text("送出中…")
+                .font(.caption)
+                .foregroundStyle(.blue)
         case .submitted:
             Text("已送出")
                 .font(.caption)
@@ -178,7 +191,7 @@ struct CoursesView: View {
         switch reservation?.status {
         case .submitted:
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .pending:
+        case .pending, .submitting:
             Image(systemName: "clock.fill").foregroundStyle(.blue)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)

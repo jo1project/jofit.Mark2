@@ -41,7 +41,7 @@ struct HistoryView: View {
             }
             .onAppear {
                 guard !hasSetInitialExpansion, let currentKey = groupedByMonth.first(where: { group in
-                    group.reservations.contains { $0.status == .pending } || isCurrentMonth(group.key)
+                    group.reservations.contains { $0.status == .pending || $0.status == .submitting } || isCurrentMonth(group.key)
                 })?.key ?? groupedByMonth.last?.key else { return }
                 expandedMonths.insert(currentKey)
                 hasSetInitialExpansion = true
@@ -87,7 +87,7 @@ struct HistoryView: View {
     private func color(for status: Reservation.Status) -> Color {
         switch status {
         case .submitted: return .green
-        case .pending: return .blue
+        case .pending, .submitting: return .blue
         case .failed: return .red
         }
     }
@@ -98,6 +98,8 @@ struct HistoryView: View {
             return "已送出 · \(reservation.submittedAt?.formatted(date: .abbreviated, time: .shortened) ?? "")"
         case .pending:
             return "排程中 · 將於 \(reservation.fireDate.formatted(date: .abbreviated, time: .shortened)) 送出"
+        case .submitting:
+            return "送出中…"
         case .failed:
             return "送出失敗 · \(reservation.lastError ?? "")"
         }

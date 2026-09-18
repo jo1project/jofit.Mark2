@@ -12,6 +12,7 @@ targets:
     platform: iOS
     sources:
       - path: Jofit
+      - path: Shared
     info:
       path: Generated/Info.plist
       properties:
@@ -29,3 +30,32 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: Jofit/Jofit.entitlements
+    dependencies:
+      - target: JofitWidgetExtension
+        embed: true
+
+  JofitWidgetExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: JofitWidget
+      - path: Shared
+    info:
+      path: Generated/JofitWidgetInfo.plist
+      properties:
+        CFBundleDisplayName: Jofit 小工具
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jofit.autobooking.widget
+        PRODUCT_NAME: JofitWidgetExtension
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
+        CODE_SIGN_ENTITLEMENTS: JofitWidget/JofitWidget.entitlements
+        SKIP_INSTALL: "YES"

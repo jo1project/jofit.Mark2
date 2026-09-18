@@ -14,6 +14,11 @@ struct Reservation: Identifiable, Codable {
 
     enum Status: String, Codable {
         case pending
+        /// A submit request is currently in flight. Kept as its own state (rather than
+        /// staying `.pending` until the network call finishes) so a reservation can never be
+        /// picked up twice by overlapping `processDue` checks while the first request is
+        /// still awaiting a response — see `ReservationStore` for details.
+        case submitting
         case submitted
         case failed
     }
