@@ -55,7 +55,9 @@ final class CourseStore: ObservableObject {
     private static func resolve(_ templates: [CourseTemplate]) -> [Course] {
         templates
             .flatMap { $0.resolvedCourses(weeksAhead: weeksAhead) }
-            .sorted { ($0.date, $0.time) < ($1.date, $1.time) }
+            // id as a final tiebreaker: multiple classrooms can share the same date+time, and
+            // ties broken only by input order are fragile — see CoursesView.groupedByWeekday.
+            .sorted { ($0.date, $0.time, $0.id) < ($1.date, $1.time, $1.id) }
     }
 
     private static func loadCache(from url: URL) -> [CourseTemplate]? {

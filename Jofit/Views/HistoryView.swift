@@ -15,7 +15,8 @@ struct HistoryView: View {
         }
         return sortedKeys.map { comps in
             let label = "\(comps.year ?? 0) 年 \(comps.month ?? 0) 月"
-            let items = groups[comps]!.sorted { $0.course.date < $1.course.date }
+            // id as a tiebreaker: two reservations can share the same day (different classrooms).
+            let items = groups[comps]!.sorted { ($0.course.date, $0.id) < ($1.course.date, $1.id) }
             return (label, items)
         }
     }

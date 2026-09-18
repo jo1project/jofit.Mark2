@@ -50,7 +50,11 @@ struct CoursesView: View {
         let byWeekday = Dictionary(grouping: templateGroups, by: \.weekdayLabel)
         return Self.weekdayOrder.compactMap { day in
             guard let templates = byWeekday[day], !templates.isEmpty else { return nil }
-            return (day, templates.sorted { $0.time < $1.time })
+            // Three classrooms means multiple classes can share the same weekday+time — sort by
+            // (time, templateID) rather than time alone, so ties break on something stable and
+            // unique instead of Dictionary's iteration order, which isn't guaranteed consistent
+            // across re-renders and was making tied rows visibly swap places on every tap.
+            return (day, templates.sorted { ($0.time, $0.templateID) < ($1.time, $1.templateID) })
         }
     }
 
