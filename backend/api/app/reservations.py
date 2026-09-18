@@ -39,7 +39,7 @@ async def create_reservation(
             return _row_to_dict(existing)
 
         cdate = date.fromisoformat(course_date)
-        now = datetime.now(TAIPEI)
+        now = datetime.now(TAIPEI).replace(microsecond=0)
         fire_date = compute_fire_date(cdate, now=now)
         reservation_id = str(uuid.uuid4())
 
@@ -84,7 +84,7 @@ async def cancel_reservation(reservation_id: str) -> bool:
 
 
 async def process_due() -> None:
-    now = datetime.now(TAIPEI)
+    now = datetime.now(TAIPEI).replace(microsecond=0)
     async with connect() as db:
         cursor = await db.execute(
             "SELECT id FROM reservations WHERE status = 'pending' AND fire_date <= ?",
@@ -114,7 +114,7 @@ async def register_device(token: str) -> None:
         await db.execute(
             "INSERT INTO devices (token, registered_at) VALUES (?, ?) "
             "ON CONFLICT(token) DO UPDATE SET registered_at = excluded.registered_at",
-            (token, datetime.now(TAIPEI).isoformat()),
+            (token, datetime.now(TAIPEI).replace(microsecond=0).isoformat()),
         )
         await db.commit()
 
@@ -153,7 +153,7 @@ async def _submit(reservation_id: str) -> dict[str, Any]:
     except Exception as exc:
         last_error = str(exc)
 
-    submitted_at = datetime.now(TAIPEI).isoformat()
+    submitted_at = datetime.now(TAIPEI).replace(microsecond=0).isoformat()
     async with connect() as db:
         await db.execute(
             """UPDATE reservations SET status = ?, submitted_at = ?, http_status = ?, last_error = ?

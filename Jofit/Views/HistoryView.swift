@@ -34,6 +34,9 @@ struct HistoryView: View {
                 }
             }
             .navigationTitle("預約紀錄")
+            .refreshable {
+                await reservationStore.refresh()
+            }
             .overlay {
                 if reservationStore.reservations.isEmpty {
                     ContentUnavailableView("尚無預約紀錄", systemImage: "tray")

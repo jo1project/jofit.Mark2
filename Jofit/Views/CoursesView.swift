@@ -61,6 +61,17 @@ struct CoursesView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                if !settings.isBackendConfigured {
+                    Section {
+                        Text("請先到「設定」分頁填寫後端網址與授權金鑰，才能建立預約")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let error = reservationStore.lastSyncError {
+                    Section {
+                        Text(error)
+                            .foregroundStyle(.red)
+                    }
+                }
                 ForEach(groupedByDate, id: \.date) { group in
                     Section(sectionTitle(for: group.date)) {
                         ForEach(group.courses) { course in
@@ -132,17 +143,17 @@ struct CoursesView: View {
             }
         }
         .foregroundStyle(.primary)
-        .disabled(reservation != nil || !settings.isComplete)
+        .disabled(reservation != nil || !settings.isComplete || !settings.isBackendConfigured)
         .swipeActions {
             if let reservation {
                 switch reservation.status {
                 case .pending:
                     Button("取消", role: .destructive) {
-                        reservationStore.cancel(reservation)
+                        Task { await reservationStore.cancel(reservation) }
                     }
                 case .failed:
                     Button("移除", role: .destructive) {
-                        reservationStore.cancel(reservation)
+                        Task { await reservationStore.cancel(reservation) }
                     }
                 case .submitting, .submitted:
                     EmptyView()
@@ -156,8 +167,22 @@ struct CoursesView: View {
         return "\(time.prefix(2)):\(time.suffix(2))"
     }
 
+    /// Just a preview shown before the user taps — the backend computes the authoritative
+    /// fire time once the reservation is actually created, using the same 6-day rule.
+    private func previewFireDate(for course: Course, now: Date = Date()) -> Date {
+        let calendar = Calendar.current
+        let classDay = calendar.startOfDay(for: course.date)
+        guard let openDay = calendar.date(byAdding: .day, value: -6, to: classDay) else { return now }
+        var comps = calendar.dateComponents([.year, .month, .day], from: openDay)
+        comps.hour = 8
+        comps.minute = 0
+        comps.second = 0
+        let candidate = calendar.date(from: comps) ?? now
+        return max(candidate, now)
+    }
+
     private func previewFireText(for course: Course) -> String {
-        let fireDate = Reservation.computeFireDate(for: course)
+        let fireDate = previewFireDate(for: course)
         if fireDate <= Date() {
             return "點一下立即送出"
         }

@@ -18,25 +18,21 @@ struct ContentView: View {
         }
         .task {
             await courseStore.refresh()
-            await checkDueReservations()
+            await reservationStore.refresh()
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             Task {
                 await courseStore.refresh()
-                await checkDueReservations()
+                await reservationStore.refresh()
             }
         }
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
             guard scenePhase == .active else { return }
-            Task { await checkDueReservations() }
+            Task { await reservationStore.refresh() }
         }
         .fullScreenCover(isPresented: .constant(!settings.hasOnboarded)) {
             OnboardingView()
         }
-    }
-
-    private func checkDueReservations() async {
-        await reservationStore.processDue(name: settings.name, employeeID: settings.employeeID)
     }
 }

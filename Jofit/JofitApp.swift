@@ -2,9 +2,16 @@ import SwiftUI
 
 @main
 struct JofitApp: App {
-    @StateObject private var settings = UserSettings()
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var settings: UserSettings
     @StateObject private var courseStore = CourseStore()
-    @StateObject private var reservationStore = ReservationStore()
+    @StateObject private var reservationStore: ReservationStore
+
+    init() {
+        let settings = UserSettings()
+        _settings = StateObject(wrappedValue: settings)
+        _reservationStore = StateObject(wrappedValue: ReservationStore(settings: settings))
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -12,6 +19,11 @@ struct JofitApp: App {
                 .environmentObject(settings)
                 .environmentObject(courseStore)
                 .environmentObject(reservationStore)
+                .onAppear {
+                    appDelegate.onDeviceToken = { token in
+                        Task { await reservationStore.registerDeviceToken(token) }
+                    }
+                }
         }
     }
 }
