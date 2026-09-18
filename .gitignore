@@ -1,0 +1,11 @@
+# XcodeGen generates these fresh in CI — don't commit them
+*.xcodeproj/
+Generated/
+build/
+DerivedData/
+ExportOptions.plist
+
+# Xcode / macOS cruft
+.DS_Store
+*.xcuserstate
+xcuserdata/
