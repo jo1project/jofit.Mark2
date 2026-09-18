@@ -3,15 +3,9 @@ import SwiftUI
 @main
 struct JofitApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var settings: UserSettings
+    @StateObject private var settings = UserSettings()
     @StateObject private var courseStore = CourseStore()
-    @StateObject private var reservationStore: ReservationStore
-
-    init() {
-        let settings = UserSettings()
-        _settings = StateObject(wrappedValue: settings)
-        _reservationStore = StateObject(wrappedValue: ReservationStore(settings: settings))
-    }
+    @StateObject private var reservationStore = ReservationStore()
 
     var body: some Scene {
         WindowGroup {

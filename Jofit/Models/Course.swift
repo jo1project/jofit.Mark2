@@ -4,6 +4,9 @@ import Foundation
 /// `CourseTemplate` (a weekly-recurring slot) for one particular week.
 struct Course: Identifiable, Hashable, Codable {
     let id: String
+    /// The `CourseTemplate.id` this instance was resolved from — lets the UI group every
+    /// week's occurrence of "Monday 18:35 Zumba" back together.
+    let templateID: String
     let date: Date
     let time: String
     let name: String

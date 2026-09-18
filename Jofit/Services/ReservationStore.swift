@@ -13,20 +13,15 @@ final class ReservationStore: ObservableObject {
     @Published private(set) var isSyncing = false
     @Published var lastSyncError: String?
 
-    private let settings: UserSettings
+    private let client = BackendClient()
     private let fileURL: URL
 
-    init(settings: UserSettings) {
-        self.settings = settings
+    init() {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         fileURL = dir.appendingPathComponent("reservations_cache.json")
         loadCache()
         updateWidgetData()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
-    }
-
-    private var client: BackendClient {
-        BackendClient(baseURL: settings.backendURL, token: settings.backendToken)
     }
 
     func reservation(for courseID: String) -> Reservation? {

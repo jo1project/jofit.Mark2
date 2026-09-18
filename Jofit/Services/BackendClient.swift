@@ -1,14 +1,11 @@
 import Foundation
 
 enum BackendError: Error, LocalizedError {
-    case notConfigured
     case invalidResponse
     case server(Int, String?)
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured:
-            return "尚未在設定裡填寫後端網址與授權金鑰"
         case .invalidResponse:
             return "伺服器回應格式錯誤"
         case .server(let code, let message):
@@ -19,14 +16,17 @@ enum BackendError: Error, LocalizedError {
 
 /// Talks to the VPS backend, which owns the actual "submit at the right time" job — this
 /// client is just how the app creates/reads/cancels reservations and registers for push.
+///
+/// The URL and token are hardcoded below at the user's explicit request, with the tradeoff
+/// spelled out and accepted: this repo is public, so anyone who finds it can read this token
+/// and call the backend directly with it. If that ever becomes a problem, rotate BEARER_TOKEN
+/// in the VPS's `backend/.env` and update the value here to match.
 struct BackendClient {
-    var baseURL: String
-    var token: String
+    static let defaultBaseURL = "https://jofit.duckdns.org"
+    static let defaultToken = "qhvg10B4b53K2kEQwqsGMHUZBr623w_Wqyz02Rnj6MU"
 
-    private var isConfigured: Bool {
-        !baseURL.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !token.trimmingCharacters(in: .whitespaces).isEmpty
-    }
+    var baseURL: String = defaultBaseURL
+    var token: String = defaultToken
 
     func listReservations() async throws -> [Reservation] {
         let data = try await send("/reservations")
@@ -62,9 +62,8 @@ struct BackendClient {
     }
 
     private func send(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
-        guard isConfigured,
-              let url = URL(string: baseURL.trimmingCharacters(in: .whitespaces) + path) else {
-            throw BackendError.notConfigured
+        guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespaces) + path) else {
+            throw BackendError.invalidResponse
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -141,7 +140,12 @@ private struct ReservationDTO: Decodable {
             let status = Reservation.Status(rawValue: status)
         else { return nil }
 
-        let course = Course(id: courseID, date: date, time: courseTime, name: courseName)
+        // courseID is "<templateID>_<yyyyMMdd>" (see CourseTemplate.resolvedCourses) — strip the
+        // date stamp back off. Only used for display grouping on already-created reservations,
+        // so falling back to the full courseID if the pattern ever doesn't match is harmless.
+        let templateID = courseID.range(of: "_[0-9]{8}$", options: .regularExpression)
+            .map { String(courseID[..<$0.lowerBound]) } ?? courseID
+        let course = Course(id: courseID, templateID: templateID, date: date, time: courseTime, name: courseName)
         let submitted = submittedAt.flatMap { Self.dateTimeFormatter.date(from: $0) }
 
         return Reservation(

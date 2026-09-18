@@ -26,7 +26,7 @@ struct CourseTemplate: Codable {
             guard let date = calendar.date(byAdding: .day, value: totalOffset, to: startOfToday) else { return nil }
             let comps = calendar.dateComponents([.year, .month, .day], from: date)
             let stamp = String(format: "%04d%02d%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
-            return Course(id: "\(id)_\(stamp)", date: date, time: time, name: name)
+            return Course(id: "\(id)_\(stamp)", templateID: id, date: date, time: time, name: name)
         }
     }
 }

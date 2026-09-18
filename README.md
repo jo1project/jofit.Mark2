@@ -7,8 +7,9 @@
 ## 功能
 
 - **首次使用強制設定**：第一次打開 App 會擋一個全螢幕畫面，一定要填完姓名與員工編號才能進入（`Views/OnboardingView.swift`）。
-- **課程瀏覽 + 兩層篩選**：課程分頁可以篩「全部顯示／夜間（20:00 後）／非夜間（20:00 前）」，再篩「不顯示哪幾個星期幾」，並可選要看未來 4 週裡的哪幾週（各週會標出實際日期範圍）。
-- **預約＝丟給後端排程**：點一堂課就是「預約」——表單規定只能在課程日前 6 天內報名，所以後端會自動算出「課程日前 6 天的早上 8:00」當作送出時間；如果那個時間已經過了（表示課程本來就在 6 天內），就直接馬上送出，不用等。這整個判斷與排程都在後端做，App 只是把「我要預約這堂課」這個意圖送過去。
+- **課程瀏覽 + 兩層篩選**：課程分頁依星期幾分區塊，每堂固定課程（例如「每週一 18:35 Zumba」）一列，下面橫排未來 4 週各自的日期選項。篩選可以選「全部顯示／夜間（20:00 後）／非夜間（20:00 前）」，以及要顯示哪幾個星期幾（預設全部顯示）。
+- **多選 + 一次送出**：在課程列表勾選想預約的那幾週（同一堂課可以一次勾好幾週），畫面下方會出現「送出預約（N）」按鈕，按下去才會真的建立預約；不是點一下就馬上預約，避免手滑誤觸。
+- **預約＝丟給後端排程**：表單規定只能在課程日前 6 天內報名，所以後端會自動算出「課程日前 6 天的早上 8:00」當作送出時間；如果那個時間已經過了（表示課程本來就在 6 天內），就直接馬上送出，不用等。這整個判斷與排程都在後端做，App 只是把「我要預約這幾堂課」這個意圖送過去。
 - **預約紀錄**：紀錄分頁依月份摺疊（點開才展開），已送出的顯示綠色、排程中／送出中的顯示藍色、送出失敗的顯示紅色。
 - **送出結果推播**：後端實際送出的那一刻（不管是馬上送出還是排程時間到了才送出），會透過 APNs 推播真的通知到手機告訴你成功或失敗——就算 App 沒開、甚至被滑掉也看得到，因為送出這件事本來就不需要手機在場。
 - **首頁小工具**：長按主畫面 →「＋」→ 搜尋「Jofit」加入。當天有已送出的課程就顯示日期＋課程名稱＋運動圖案；沒有就顯示日期＋「今天休息」＋休息圖案。
@@ -30,7 +31,7 @@ Jofit/                       # 主 App target
   Services/BackendClient.swift           # 呼叫後端 API（建立/查詢/取消預約、註冊 device token）
   Services/CourseStore.swift             # 從 courses.json 抓課表 + 本地快取 + 換算成未來 4 週的日期
   Services/ReservationStore.swift        # 同步後端狀態、本地快取（離線用）、同步小工具
-  Services/UserSettings.swift            # 姓名/員工編號/後端網址/授權金鑰 設定
+  Services/UserSettings.swift            # 姓名/員工編號 設定
   Views/                      # 課程／紀錄／設定 三個分頁 + 首次使用引導畫面
 JofitWidget/                 # WidgetKit extension target
   JofitWidgetBundle.swift
@@ -81,7 +82,7 @@ backend/                     # 跑在使用者 VPS 上的後端，見下面「�
    | `ASC_API_KEY_BASE64` | 上一步轉出的 base64 字串 |
 
 8. Push 到 `main`（或手動在 Actions 頁面 `workflow_dispatch` 觸發）即可觸發第一次建置。第一次跑因為沒有本機 Mac 測過，簽章/流程如有問題請看 Actions log 除錯（常見問題是 Bundle ID／App Group 未註冊、API Key 權限不足）。
-9. 建置成功後幾分鐘內會出現在 TestFlight，用你訂閱的 TestFlight 帳號把自己加為測試者即可安裝到 iPhone，安裝後長按主畫面「＋」搜尋「Jofit」加入小工具。打開 App 後到「設定」分頁填入後端網址與授權金鑰（見下面「後端部署」章節）才能建立預約。
+9. 建置成功後幾分鐘內會出現在 TestFlight，用你訂閱的 TestFlight 帳號把自己加為測試者即可安裝到 iPhone，安裝後長按主畫面「＋」搜尋「Jofit」加入小工具。後端網址與授權金鑰已經寫死在 `Jofit/Services/BackendClient.swift` 裡（見下面「後端部署」章節的說明與風險），打開 App 到「設定」分頁填姓名與員工編號就能直接用，不用額外設定連線資訊。
 
 ## 更新課程清單
 
@@ -181,7 +182,7 @@ curl https://<你的 DuckDNS 網域>/health   # 應該回 {"ok":true}
 
 | 變數 | 說明 |
 |---|---|
-| `BEARER_TOKEN` | App 呼叫後端 API 時要帶的授權金鑰，填進 App 的「設定」分頁 |
+| `BEARER_TOKEN` | App 呼叫後端 API 時要帶的授權金鑰。這組值同時寫死在 `Jofit/Services/BackendClient.swift`（`defaultToken`），兩邊要保持一致——改了這裡記得也改 App 那邊 |
 | `DOMAIN` | DuckDNS 網域，例如 `jofit.duckdns.org` |
 | `DUCKDNS_TOKEN` | DuckDNS 帳號頁面上的 token，Caddy 申請憑證用 |
 | `APNS_KEY_ID` / `APNS_TEAM_ID` | APNs 金鑰的 Key ID 與 Apple Developer Team ID（不填就自動跳過推播，不會報錯） |
@@ -201,4 +202,6 @@ curl https://<你的 DuckDNS 網域>/health   # 應該回 {"ok":true}
 
 小工具（WidgetKit extension + App Group）跟 Push Notifications 是這個專案裡風險最高的新增部分，原因是它們牽涉多個 target 一起簽章、兩項要手動在 Apple Developer 網站開啟的能力（App Group、Push Notifications），這些步驟本身無法在沒有 Mac 的環境下驗證。如果第一次建置失敗，先看 Actions log 裡是 `Jofit` 這個 target 出錯還是 `JofitWidgetExtension` 出錯：如果是後者，最常見原因是 App Group 沒建好、或兩個 Bundle ID 的 App Groups 能力沒有勾選同一個群組；如果是簽章階段整體失敗，檢查 Push Notifications 能力有沒有在 `com.jofit.autobooking` 上開啟。
 
-Phase C（App 改接後端）目前完成但**完全沒有在真實裝置上跑過**：`BackendClient` 的 HTTP 呼叫、`ReservationDTO` 的日期解析、APNs device token 的註冊流程，這些都是照 API 規格與標準寫法寫的，邏輯上跟後端（已經測過）的回應格式一致，但沒有 Xcode/iPhone 可以實際建置執行來確認。第一次裝上真機後，建議照這個順序驗證：（1）設定分頁填好後端網址與授權金鑰，（2）在課程分頁選一堂 6 天內的課，確認能立刻在「紀錄」分頁看到「已送出」、且手機收到推播；（3）選一堂 6 天以上的課，確認狀態顯示「已排程」且時間正確；（4）到 VPS 上用 `docker compose logs api` 確認後端真的有收到並記錄這筆預約。
+Phase C（App 改接後端）目前完成但**完全沒有在真實裝置上跑過**：`BackendClient` 的 HTTP 呼叫、`ReservationDTO` 的日期解析、APNs device token 的註冊流程，這些都是照 API 規格與標準寫法寫的，邏輯上跟後端（已經測過）的回應格式一致，但沒有 Xcode/iPhone 可以實際建置執行來確認。第一次裝上真機後，建議照這個順序驗證：（1）在課程分頁勾選一堂 6 天內的課並按「送出預約」，確認能立刻在「紀錄」分頁看到「已送出」、且手機收到推播；（2）勾選一堂 6 天以上的課，確認狀態顯示「已排程」且時間正確；（3）到 VPS 上用 `docker compose logs api` 確認後端真的有收到並記錄這筆預約。
+
+**關於把網址跟授權金鑰寫死在 `BackendClient.swift` 裡**：這是照你的要求做的，但這個 repo 是 public 的，代表任何人只要找到這個 repo，就能看到、複製這組 token，繞過手機直接呼叫後端 API（建立假預約、耗用「6 天內最多 2 次」的安全額度等）。已經跟你確認過這個風險、你選擇接受。如果之後想收回，最簡單的做法是把 repo 改成 private（`courses.json` 的抓取方式需要跟著調整成帶認證的請求），或是重新產生一組 `BEARER_TOKEN` 並同步更新 VPS 的 `.env` 與 `BackendClient.swift`。
