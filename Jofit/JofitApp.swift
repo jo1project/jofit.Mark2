@@ -7,6 +7,10 @@ struct JofitApp: App {
     @StateObject private var courseStore = CourseStore()
     @StateObject private var reservationStore = ReservationStore()
 
+    init() {
+        Theme.applyAppearance()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

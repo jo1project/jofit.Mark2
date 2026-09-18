@@ -24,6 +24,14 @@ struct Course: Identifiable, Hashable, Codable {
         return String(format: "%d/%02d", comps.month ?? 0, comps.day ?? 0)
     }
 
+    /// Display-only "1920" -> "19:20". `submissionText` keeps the raw form the admin parses.
+    static func displayTime(_ raw: String) -> String {
+        guard raw.count == 4 else { return raw }
+        return "\(raw.prefix(2)):\(raw.suffix(2))"
+    }
+
+    var timeText: String { Self.displayTime(time) }
+
     /// Must match the format the Jofit admin parses by hand, e.g. "1/16 週六 1120 燃脂泰拳".
     var submissionText: String {
         "\(dateText) \(weekdayLabel) \(time) \(name)"

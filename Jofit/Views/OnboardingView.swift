@@ -9,14 +9,14 @@ struct OnboardingView: View {
 
             Image(systemName: "figure.run.circle.fill")
                 .font(.system(size: 64))
-                .foregroundStyle(.tint)
+                .foregroundStyle(Theme.brand)
 
             VStack(spacing: 8) {
                 Text("歡迎使用 Jofit 自動報名")
                     .font(.title2.bold())
                 Text("第一次使用請先填寫姓名與員工編號，之後每次報名都會自動帶入這份資料。")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             }
@@ -38,12 +38,12 @@ struct OnboardingView: View {
                 Text("開始使用")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(.primary)
             .disabled(!settings.isComplete)
             .padding(.horizontal, 32)
             .padding(.bottom, 32)
         }
+        .background(Theme.background.ignoresSafeArea())
         .interactiveDismissDisabled()
     }
 }

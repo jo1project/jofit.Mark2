@@ -58,37 +58,57 @@ struct CoursesView: View {
         }
     }
 
+    private var isFilterActive: Bool {
+        timeFilter != .all || shownWeekdays.count != Self.weekdayOrder.count
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                if !settings.isComplete {
-                    Section {
-                        Text("請先到「設定」分頁填寫姓名與員工編號")
-                            .foregroundStyle(.secondary)
+            ScrollView {
+                // Cards carry their own horizontal padding (not the stack) so the pinned
+                // weekday headers can paint edge to edge and hide cards scrolling under them.
+                LazyVStack(alignment: .leading, spacing: 12, pinnedViews: [.sectionHeaders]) {
+                    if !settings.isComplete {
+                        banner("請先到「設定」分頁填寫姓名與員工編號", color: Theme.textSecondary)
                     }
-                }
-                if let error = reservationStore.lastSyncError {
-                    Section {
-                        Text(error)
-                            .foregroundStyle(.red)
+                    if let error = reservationStore.lastSyncError {
+                        banner(error, color: Theme.danger)
                     }
-                }
-                ForEach(groupedByWeekday, id: \.weekday) { group in
-                    Section(group.weekday) {
-                        ForEach(group.templates) { template in
-                            templateRow(template)
+                    activeFilterRow
+                    ForEach(groupedByWeekday, id: \.weekday) { group in
+                        Section {
+                            ForEach(group.templates) { template in
+                                templateCard(template)
+                                    .padding(.horizontal, 16)
+                            }
+                        } header: {
+                            weekdayHeader(group.weekday)
                         }
                     }
                 }
             }
+            // Room for the floating tab bar so the last card can scroll fully above it.
+            .contentMargins(.bottom, 100, for: .scrollContent)
+            .background(Theme.background.ignoresSafeArea())
             .navigationTitle("課程")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showFilters = true
                     } label: {
-                        Label("篩選", systemImage: "line.3.horizontal.decrease.circle")
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .overlay(alignment: .topTrailing) {
+                                if isFilterActive {
+                                    Circle()
+                                        .fill(Theme.brand)
+                                        .frame(width: 9, height: 9)
+                                        .overlay(Circle().strokeBorder(Theme.background, lineWidth: 1.5))
+                                        .offset(x: 3, y: -3)
+                                }
+                            }
                     }
+                    .accessibilityLabel("篩選")
+                    .accessibilityValue(isFilterActive ? "已啟用" : "")
                 }
             }
             .refreshable {
@@ -97,10 +117,15 @@ struct CoursesView: View {
             .sheet(isPresented: $showFilters) {
                 FilterView(timeFilter: $timeFilter, shownWeekdays: $shownWeekdays)
                     .presentationDetents([.medium, .large])
+                    .presentationCornerRadius(28)
             }
             .overlay {
                 if filteredCourses.isEmpty {
-                    ContentUnavailableView("沒有符合條件的課程", systemImage: "calendar.badge.exclamationmark")
+                    ContentUnavailableView(
+                        "沒有符合條件的課程",
+                        systemImage: "calendar.badge.exclamationmark",
+                        description: isFilterActive ? Text("篩選條件有點嚴格，放寬一點試試看") : nil
+                    )
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -125,21 +150,62 @@ struct CoursesView: View {
         }
     }
 
+    private func banner(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(color)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardBackground()
+            .padding(.horizontal, 16)
+    }
+
+    /// Summary of non-default filters, shown under the title. Hidden when nothing is filtered.
+    @ViewBuilder
+    private var activeFilterRow: some View {
+        if isFilterActive {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if timeFilter != .all {
+                        TagPill(text: timeFilter.rawValue)
+                    }
+                    if shownWeekdays.count != Self.weekdayOrder.count {
+                        let days = Self.weekdayOrder.filter { shownWeekdays.contains($0) }.map { String($0.dropFirst()) }
+                        TagPill(text: days.isEmpty ? "未選任何星期" : "星期 " + days.joined(separator: "・"))
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    private func weekdayHeader(_ day: String) -> some View {
+        Text(day)
+            .font(.subheadline.weight(Theme.Weight.title))
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.background)
+    }
+
     private var submitBar: some View {
         Button {
             submitSelected()
         } label: {
             if isSubmitting {
                 ProgressView()
+                    .tint(Theme.brand)
                     .frame(maxWidth: .infinity)
             } else {
                 Text("送出預約（\(selectedInstanceIDs.count)）")
                     .frame(maxWidth: .infinity)
             }
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.primary)
         .disabled(isSubmitting || !settings.isComplete)
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .background(.bar)
     }
 
@@ -156,28 +222,45 @@ struct CoursesView: View {
         }
     }
 
-    @ViewBuilder
-    private func templateRow(_ group: TemplateGroup) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("\(displayTime(group.time))　\(group.name)")
-                .font(.body)
-            HStack(spacing: 10) {
+    private func templateCard(_ group: TemplateGroup) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Time is small, secondary and fixed-width digits; the name is big and heavy.
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(Course.displayTime(group.time))
+                    .font(.subheadline.weight(Theme.Weight.label).monospacedDigit())
+                    .foregroundStyle(Theme.textSecondary)
+                Text(group.name)
+                    .font(.title3.weight(Theme.Weight.title))
+                    .foregroundStyle(Theme.ink)
+            }
+            // No coach / venue line: `courses.json` has no such fields yet.
+            HStack(spacing: 8) {
                 ForEach(group.instances) { course in
-                    weekOption(course)
+                    dateChip(course)
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 14)
+        .padding(.leading, 20)
+        .padding(.trailing, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(CourseCategory(courseName: group.name).color)
+                .frame(width: 5)
+        }
+        .cardBackground()
     }
 
     @ViewBuilder
-    private func weekOption(_ course: Course) -> some View {
+    private func dateChip(_ course: Course) -> some View {
         let reservation = reservationStore.reservation(for: course.id)
         let isSelected = selectedInstanceIDs.contains(course.id)
 
-        Button {
+        DateChip(text: course.dateText, state: chipState(reservation: reservation, isSelected: isSelected)) {
             switch reservation?.status {
             case nil:
+                Haptics.tap()
                 if isSelected {
                     selectedInstanceIDs.remove(course.id)
                 } else {
@@ -188,48 +271,15 @@ struct CoursesView: View {
             case .submitting, .submitted:
                 break
             }
-        } label: {
-            VStack(spacing: 4) {
-                statusOrCheckIcon(reservation: reservation, isSelected: isSelected)
-                Text(course.dateText)
-                    .font(.caption2)
-                    .foregroundStyle(.primary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(optionBackground(reservation: reservation, isSelected: isSelected))
-            )
         }
-        .buttonStyle(.plain)
-        .disabled(reservation?.status == .submitting || reservation?.status == .submitted)
     }
 
-    @ViewBuilder
-    private func statusOrCheckIcon(reservation: Reservation?, isSelected: Bool) -> some View {
+    private func chipState(reservation: Reservation?, isSelected: Bool) -> DateChipState {
         switch reservation?.status {
-        case .submitted:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .pending, .submitting:
-            Image(systemName: "clock.fill").foregroundStyle(.blue)
-        case .failed:
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-        case nil:
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+        case .submitted: return .submitted
+        case .pending, .submitting: return .scheduled
+        case .failed: return .failed
+        case nil: return isSelected ? .selected : .idle
         }
-    }
-
-    private func optionBackground(reservation: Reservation?, isSelected: Bool) -> Color {
-        if reservation != nil {
-            return Color(.secondarySystemBackground)
-        }
-        return isSelected ? Color.accentColor.opacity(0.15) : Color(.secondarySystemBackground)
-    }
-
-    private func displayTime(_ time: String) -> String {
-        guard time.count == 4 else { return time }
-        return "\(time.prefix(2)):\(time.suffix(2))"
     }
 }

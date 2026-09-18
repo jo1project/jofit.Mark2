@@ -16,6 +16,7 @@ struct ContentView: View {
             SettingsView()
                 .tabItem { Label("設定", systemImage: "gearshape") }
         }
+        .tint(Theme.accent)
         .task {
             await courseStore.refresh()
             await reservationStore.refresh()

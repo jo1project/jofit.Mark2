@@ -59,7 +59,7 @@ struct JofitWidgetView: View {
                 Image("RestDay")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(height: 40)
+                    .frame(height: 60)
                 Text("今天休息")
                     .font(.headline)
             }
