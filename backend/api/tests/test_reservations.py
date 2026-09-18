@@ -70,5 +70,31 @@ async def main():
     assert len(fake_submit_form.calls) == 1, f"expected exactly 1 submit, got {len(fake_submit_form.calls)}"
     print("PASS: overlapping process_due sweeps only submitted once")
 
+    # Global safety cap: no more than MAX_ATTEMPTS_PER_WINDOW real POSTs to Google Forms within
+    # ATTEMPT_WINDOW, across every reservation combined, regardless of what triggers them.
+    # The two scenarios above already logged 2 real attempts of their own — clear those first
+    # so this section starts from a clean slate.
+    async with storage.connect() as db:
+        await db.execute("DELETE FROM submission_attempts")
+        await db.commit()
+    fake_submit_form.calls.clear()
+    google_form.submit_form = fake_submit_form
+    assert reservations.MAX_ATTEMPTS_PER_WINDOW == 2, "test assumes the cap is 2"
+
+    results = []
+    for i in range(3):
+        course_date = (date.today() + timedelta(days=2)).isoformat()
+        results.append(await reservations.create_reservation(
+            course_id=f"cap-test-{i}", course_date=course_date, course_time="0900",
+            course_name=f"上限測試{i}", reporter_name="測試", employee_id="E004",
+        ))
+
+    assert results[0]["status"] == "submitted", results[0]
+    assert results[1]["status"] == "submitted", results[1]
+    assert results[2]["status"] == "failed", results[2]
+    assert "安全上限" in (results[2]["last_error"] or ""), results[2]
+    assert len(fake_submit_form.calls) == 2, f"expected exactly 2 real submits, got {len(fake_submit_form.calls)}"
+    print("PASS: 3rd submission within the window is blocked by the global safety cap")
+
 
 asyncio.run(main())

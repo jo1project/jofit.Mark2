@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS devices (
   token TEXT PRIMARY KEY,
   registered_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS submission_attempts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  attempted_at TEXT NOT NULL
+);
 """
 
 

@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import aiosqlite
@@ -15,6 +15,18 @@ from .storage import connect
 # cross-connection SQLite locking) to guarantee a reservation is never claimed by two concurrent
 # submit attempts at once.
 _submit_lock = asyncio.Lock()
+
+# Hard global safety cap, independent of the per-reservation guards above: no more than this
+# many real POSTs to Google Forms — successful or not, this counts *attempts* since Google
+# gives no reliable success signal to distinguish them — in any rolling window of this length,
+# full stop, across every reservation combined. Ordinary usage should never come close (the
+# form itself only allows booking within a 6-day window), so this exists purely as a backstop
+# against a runaway bug causing a flood of real submissions. Self-healing: once an attempt ages
+# out of the window it stops counting, so no manual reset is needed — but it means a genuine
+# runaway bug is mathematically capped at this many real submissions per window, forever, no
+# matter how long the bug goes unnoticed.
+MAX_ATTEMPTS_PER_WINDOW = 2
+ATTEMPT_WINDOW = timedelta(days=6)
 
 
 def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
@@ -122,7 +134,9 @@ async def register_device(token: str) -> None:
 async def _submit(reservation_id: str) -> dict[str, Any]:
     """Atomically claims the reservation (pending -> submitting) before doing anything that
     awaits, so two overlapping sweeps (or a request landing at the exact fire moment) can never
-    both submit the same reservation — the UPDATE...WHERE status='pending' only succeeds once."""
+    both submit the same reservation — the UPDATE...WHERE status='pending' only succeeds once.
+    Also enforces the global MAX_ATTEMPTS_PER_WINDOW cap: claiming and the attempt-count
+    check+log happen under the same lock so the count itself can't be raced either."""
     async with _submit_lock:
         async with connect() as db:
             cursor = await db.execute(
@@ -135,8 +149,25 @@ async def _submit(reservation_id: str) -> dict[str, Any]:
             cursor = await db.execute("SELECT * FROM reservations WHERE id = ?", (reservation_id,))
             row = await cursor.fetchone()
 
-    if not claimed:
-        return _row_to_dict(row)
+        if not claimed:
+            return _row_to_dict(row)
+
+        now = datetime.now(TAIPEI).replace(microsecond=0)
+        cutoff = (now - ATTEMPT_WINDOW).isoformat()
+        async with connect() as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) AS n FROM submission_attempts WHERE attempted_at >= ?", (cutoff,)
+            )
+            recent_attempts = (await cursor.fetchone())["n"]
+            blocked = recent_attempts >= MAX_ATTEMPTS_PER_WINDOW
+            if not blocked:
+                await db.execute(
+                    "INSERT INTO submission_attempts (attempted_at) VALUES (?)", (now.isoformat(),)
+                )
+                await db.commit()
+
+    if blocked:
+        return await _mark_blocked(reservation_id)
 
     course_text = submission_text(
         date.fromisoformat(row["course_date"]), row["course_time"], row["course_name"]
@@ -165,6 +196,30 @@ async def _submit(reservation_id: str) -> dict[str, Any]:
         row = await cursor.fetchone()
 
     await _notify_result(course_text, status, last_error)
+    return _row_to_dict(row)
+
+
+async def _mark_blocked(reservation_id: str) -> dict[str, Any]:
+    """Hit the MAX_ATTEMPTS_PER_WINDOW safety cap — refuse to submit, and make sure it's loud
+    (marked failed with an explicit reason, plus a push) rather than silently dropped, since
+    hitting this at all is unusual enough to be worth a human's attention."""
+    message = (
+        f"已達到 {ATTEMPT_WINDOW.days} 天內最多送出 {MAX_ATTEMPTS_PER_WINDOW} 次的安全上限，"
+        "這筆沒有送出，請確認沒有異常後在 App 裡手動處理"
+    )
+    async with connect() as db:
+        await db.execute(
+            "UPDATE reservations SET status = 'failed', last_error = ? WHERE id = ?",
+            (message, reservation_id),
+        )
+        await db.commit()
+        cursor = await db.execute("SELECT * FROM reservations WHERE id = ?", (reservation_id,))
+        row = await cursor.fetchone()
+
+    course_text = submission_text(
+        date.fromisoformat(row["course_date"]), row["course_time"], row["course_name"]
+    )
+    await _notify_result(course_text, "failed", message)
     return _row_to_dict(row)
 
 
