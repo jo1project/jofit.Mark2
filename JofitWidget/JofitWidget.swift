@@ -42,26 +42,24 @@ struct JofitWidgetView: View {
     var entry: JofitEntry
 
     var body: some View {
-        VStack(spacing: 6) {
-            Text(dateText(entry.date))
-                .font(.caption)
-                .foregroundStyle(Theme.textSecondary)
-
-            if let courseName = entry.courseName {
-                PixelArt(name: "ExerciseDay", targetHeight: 60)
-                Text(courseName)
-                    .font(.headline)
-                    .foregroundStyle(Theme.ink)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-            } else {
-                PixelArt(name: "RestDay", targetHeight: 60)
-                Text("今天休息")
-                    .font(.headline)
-                    .foregroundStyle(Theme.ink)
+        GeometryReader { geo in
+            ZStack {
+                PixelArt(name: entry.courseName == nil ? "RestDay" : "ExerciseDay", targetHeight: geo.size.height * 0.58)
+                VStack {
+                    Text(dateText(entry.date))
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary)
+                    Spacer()
+                    Text(entry.courseName ?? "今天休息")
+                        .font(.caption.weight(Theme.Weight.title))
+                        .foregroundStyle(Theme.ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .padding(10)
             }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
-        .padding()
         .containerBackground(for: .widget) { Theme.background }
     }
 
@@ -103,5 +101,6 @@ struct JofitWidget: Widget {
         .configurationDisplayName("Jofit 今日課程")
         .description("顯示今天有沒有已報名的課程。")
         .supportedFamilies([.systemSmall, .systemMedium])
+        .contentMarginsDisabled()
     }
 }
