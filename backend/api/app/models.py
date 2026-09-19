@@ -35,6 +35,7 @@ class ReservationOut(BaseModel):
 
 class DeviceTokenIn(BaseModel):
     token: str
+    employee_id: str = Field(min_length=1)
 
 
 class CourseTemplateIO(BaseModel):

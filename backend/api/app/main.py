@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Body, Depends, FastAPI, HTTPException
+from fastapi import Body, Depends, FastAPI, Header, HTTPException
 
 from . import courses, reservations, scheduler, storage
 from .auth import require_admin, require_auth
@@ -40,14 +40,37 @@ async def post_reservation(body: ReservationIn) -> dict:
     )
 
 
+async def _owner(employee_id: str | None, x_admin_pin: str | None) -> str | None:
+    """Whose reservations this request may touch. The bearer token is shared by every install,
+    so it says nothing about who is asking: a normal caller must name their own employee_id and
+    is confined to it; a valid admin PIN lifts the confinement (returns None = everyone)."""
+    employee_id = (employee_id or "").strip() or None
+    if x_admin_pin is not None:
+        await require_admin(x_admin_pin)
+        return employee_id
+    if employee_id is None:
+        raise HTTPException(status_code=422, detail="employee_id is required")
+    return employee_id
+
+
 @app.get("/reservations", response_model=list[ReservationOut], dependencies=[Depends(require_auth)])
-async def get_reservations() -> list[dict]:
-    return await reservations.list_reservations()
+async def get_reservations(
+    employee_id: str | None = None, x_admin_pin: Annotated[str | None, Header()] = None
+) -> list[dict]:
+    return await reservations.list_reservations(await _owner(employee_id, x_admin_pin))
 
 
 @app.delete("/reservations/{reservation_id}", dependencies=[Depends(require_auth)])
-async def delete_reservation(reservation_id: str) -> dict:
-    ok = await reservations.cancel_reservation(reservation_id)
+async def delete_reservation(
+    reservation_id: str, employee_id: str | None = None, x_admin_pin: Annotated[str | None, Header()] = None
+) -> dict:
+    # With a PIN the employee_id is optional: an admin may cancel anyone's.
+    if x_admin_pin is not None:
+        await require_admin(x_admin_pin)
+        owner = None
+    else:
+        owner = await _owner(employee_id, None)
+    ok = await reservations.cancel_reservation(reservation_id, owner)
     if not ok:
         raise HTTPException(status_code=404, detail="Not found, or already submitting/submitted")
     return {"ok": True}
@@ -55,7 +78,7 @@ async def delete_reservation(reservation_id: str) -> dict:
 
 @app.post("/device-token", dependencies=[Depends(require_auth)])
 async def post_device_token(body: DeviceTokenIn) -> dict:
-    await reservations.register_device(body.token)
+    await reservations.register_device(body.token, body.employee_id)
     return {"ok": True}
 
 

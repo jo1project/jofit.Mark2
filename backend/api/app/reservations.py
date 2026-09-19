@@ -16,9 +16,19 @@ from .storage import connect
 # submit attempts at once.
 _submit_lock = asyncio.Lock()
 
+# At 08:00 many reservations come due at once: submit them in parallel, but cap how many
+# Chromium instances run together (~160MB peak each on the 961MB / 1 vCPU VPS). Every real
+# submit goes through _submit, so this one semaphore covers the scheduler and immediate paths.
+MAX_CONCURRENT_SUBMITS = 2
+_submit_slots = asyncio.Semaphore(MAX_CONCURRENT_SUBMITS)
+
+# Set when a reservation is created so the scheduler re-plans its sleep: one made at 07:59:50
+# for an 08:00:00 class must not wait out a sleep that was planned before it existed.
+new_pending = asyncio.Event()
+
 # Safety cap, independent of the per-reservation guards above: for a given (employee, class
-# date, class name) — i.e. "this person's booking for this specific class on this specific
-# day" — no more than this many real POSTs to Google Forms in any rolling window of this
+# date, class time, class name) — i.e. "this person's booking for this specific class on this
+# specific day" — no more than this many real POSTs to Google Forms in any rolling window of this
 # length, successful or not (this counts *attempts*, since Google gives no reliable success
 # signal to distinguish them). Scoped per employee/day/class rather than globally, so booking
 # one class never eats into the attempt budget for a different one. And once any attempt for
@@ -27,6 +37,8 @@ _submit_lock = asyncio.Lock()
 # out of the window it stops counting toward the cap, so no manual reset is needed — but it
 # means a genuine runaway bug is mathematically capped at this many real submissions per
 # window, per (employee, day, class), forever, no matter how long the bug goes unnoticed.
+# The one deliberate way out is a human: cancelling a *failed* reservation (see
+# cancel_reservation) clears that class's failed attempts so they can book it again by hand.
 MAX_ATTEMPTS_PER_WINDOW = 2
 ATTEMPT_WINDOW = timedelta(days=6)
 
@@ -72,6 +84,7 @@ async def create_reservation(
                  reporter_name, employee_id, fire_date.isoformat(), now.isoformat()),
             )
             await db.commit()
+            new_pending.set()
         except aiosqlite.IntegrityError:
             cursor = await db.execute(
                 "SELECT * FROM reservations WHERE course_id = ? AND employee_id = ?", (course_id, employee_id)
@@ -88,21 +101,42 @@ async def create_reservation(
     return _row_to_dict(row)
 
 
-async def list_reservations() -> list[dict[str, Any]]:
+async def list_reservations(employee_id: str | None = None) -> list[dict[str, Any]]:
+    """`employee_id=None` means everyone's — callers must only pass that for an admin."""
+    where, args = ("WHERE employee_id = ?", (employee_id.strip(),)) if employee_id is not None else ("", ())
     async with connect() as db:
-        cursor = await db.execute("SELECT * FROM reservations ORDER BY course_date, course_time")
+        cursor = await db.execute(f"SELECT * FROM reservations {where} ORDER BY course_date, course_time", args)
         rows = await cursor.fetchall()
     return [_row_to_dict(r) for r in rows]
 
 
-async def cancel_reservation(reservation_id: str) -> bool:
+async def cancel_reservation(reservation_id: str, employee_id: str | None = None) -> bool:
     """Deleting the row is the whole cancel: the scheduler only ever reads this table, so a
     deleted reservation can't fire. Only pending (not yet sent) and failed (nothing to undo)
-    rows can go — submitting is mid-POST and submitted can't be recalled from Google Forms."""
+    rows can go — submitting is mid-POST and submitted can't be recalled from Google Forms.
+    `employee_id` restricts it to that person's own row (a mismatch looks like "not found");
+    None is the admin override.
+
+    Cancelling a failed row also forgets that class's failed attempts: it's the human "I've
+    checked, let me retry" signal, so the safety cap no longer locks them out for days."""
+    owner, args = ("AND employee_id = ?", (employee_id.strip(),)) if employee_id is not None else ("", ())
     async with connect() as db:
+        cursor = await db.execute(
+            f"SELECT * FROM reservations WHERE id = ? AND status IN ('pending', 'failed') {owner}",
+            (reservation_id, *args),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return False
         cursor = await db.execute(
             "DELETE FROM reservations WHERE id = ? AND status IN ('pending', 'failed')", (reservation_id,)
         )
+        if cursor.rowcount and row["status"] == "failed":
+            await db.execute(
+                """DELETE FROM submission_attempts WHERE succeeded = 0 AND employee_id = ?
+                   AND course_date = ? AND course_time = ? AND course_name = ?""",
+                (row["employee_id"], row["course_date"], row["course_time"], row["course_name"]),
+            )
         await db.commit()
         return cursor.rowcount > 0
 
@@ -130,8 +164,21 @@ async def process_due() -> None:
         )
         due_ids = [r["id"] for r in await cursor.fetchall()]
 
-    for reservation_id in due_ids:
-        await _submit(reservation_id)
+    await asyncio.gather(*(_submit(reservation_id) for reservation_id in due_ids))
+
+
+async def seconds_until_next_due() -> float:
+    """How long the scheduler may sleep: until the earliest pending fire_date, at most 30s (a
+    safety net for anything that slips past new_pending). The small pad keeps a wake-up that
+    lands a hair early from finding nothing due yet, since process_due truncates to seconds."""
+    async with connect() as db:
+        cursor = await db.execute("SELECT MIN(fire_date) AS f FROM reservations WHERE status = 'pending'")
+        earliest = (await cursor.fetchone())["f"]
+    if earliest is None:
+        return 30
+    gap = (datetime.fromisoformat(earliest) - datetime.now(TAIPEI)).total_seconds()
+    # gap <= 0 with rows still pending means a sweep just failed; don't spin on it.
+    return 1 if gap <= 0 else min(gap + 0.02, 30)
 
 
 async def recover_stuck_submissions() -> None:
@@ -147,12 +194,15 @@ async def recover_stuck_submissions() -> None:
         await db.commit()
 
 
-async def register_device(token: str) -> None:
+async def register_device(token: str, employee_id: str) -> None:
+    """One device belongs to one person: re-registering a token under another employee (the
+    app's employee ID changed) moves it, so pushes follow the current owner only."""
     async with connect() as db:
         await db.execute(
-            "INSERT INTO devices (token, registered_at) VALUES (?, ?) "
-            "ON CONFLICT(token) DO UPDATE SET registered_at = excluded.registered_at",
-            (token, datetime.now(TAIPEI).replace(microsecond=0).isoformat()),
+            "INSERT INTO devices (token, employee_id, registered_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(token) DO UPDATE SET employee_id = excluded.employee_id, "
+            "registered_at = excluded.registered_at",
+            (token, employee_id.strip(), datetime.now(TAIPEI).replace(microsecond=0).isoformat()),
         )
         await db.commit()
 
@@ -181,18 +231,20 @@ async def _submit(reservation_id: str) -> dict[str, Any] | None:
 
         now = datetime.now(TAIPEI).replace(microsecond=0)
         cutoff = (now - ATTEMPT_WINDOW).isoformat()
-        scope = (row["employee_id"], row["course_date"], row["course_name"])
+        scope = (row["employee_id"], row["course_date"], row["course_time"], row["course_name"])
         async with connect() as db:
             cursor = await db.execute(
                 """SELECT COUNT(*) AS n FROM submission_attempts
-                   WHERE employee_id = ? AND course_date = ? AND course_name = ? AND succeeded = 1""",
+                   WHERE employee_id = ? AND course_date = ? AND course_time = ? AND course_name = ?
+                   AND succeeded = 1""",
                 scope,
             )
             already_succeeded = (await cursor.fetchone())["n"] > 0
 
             cursor = await db.execute(
                 """SELECT COUNT(*) AS n FROM submission_attempts
-                   WHERE employee_id = ? AND course_date = ? AND course_name = ? AND attempted_at >= ?""",
+                   WHERE employee_id = ? AND course_date = ? AND course_time = ? AND course_name = ?
+                   AND attempted_at >= ?""",
                 (*scope, cutoff),
             )
             recent_attempts = (await cursor.fetchone())["n"]
@@ -207,8 +259,8 @@ async def _submit(reservation_id: str) -> dict[str, Any] | None:
             if blocked_reason is None:
                 cursor = await db.execute(
                     """INSERT INTO submission_attempts
-                       (employee_id, course_date, course_name, attempted_at, succeeded)
-                       VALUES (?, ?, ?, ?, 0)""",
+                       (employee_id, course_date, course_time, course_name, attempted_at, succeeded)
+                       VALUES (?, ?, ?, ?, ?, 0)""",
                     (*scope, now.isoformat()),
                 )
                 await db.commit()
@@ -225,7 +277,8 @@ async def _submit(reservation_id: str) -> dict[str, Any] | None:
     http_status = None
     last_error = None
     try:
-        http_status = await google_form.submit_form(row["reporter_name"], row["employee_id"], course_text)
+        async with _submit_slots:
+            http_status = await google_form.submit_form(row["reporter_name"], row["employee_id"], course_text)
         ok = 200 <= http_status < 300
         status = "submitted" if ok else "failed"
         last_error = None if ok else f"表單回應狀態碼 {http_status}"
@@ -245,7 +298,7 @@ async def _submit(reservation_id: str) -> dict[str, Any] | None:
         cursor = await db.execute("SELECT * FROM reservations WHERE id = ?", (reservation_id,))
         row = await cursor.fetchone()
 
-    await _notify_result(course_text, status, last_error)
+    await _notify_result(row["employee_id"], course_text, status, last_error)
     return _row_to_dict(row)
 
 
@@ -258,7 +311,7 @@ async def _mark_blocked(reservation_id: str, reason: str) -> dict[str, Any]:
     else:
         message = (
             f"這位員工這一天這堂課，{ATTEMPT_WINDOW.days} 天內已經嘗試送出 {MAX_ATTEMPTS_PER_WINDOW} 次，"
-            "這筆沒有送出，請確認沒有異常後在 App 裡手動處理"
+            "這筆沒有送出，請確認沒有異常後，在 App 取消這筆再重新預約"
         )
     async with connect() as db:
         await db.execute(
@@ -272,13 +325,13 @@ async def _mark_blocked(reservation_id: str, reason: str) -> dict[str, Any]:
     course_text = submission_text(
         date.fromisoformat(row["course_date"]), row["course_time"], row["course_name"]
     )
-    await _notify_result(course_text, "failed", message)
+    await _notify_result(row["employee_id"], course_text, "failed", message)
     return _row_to_dict(row)
 
 
-async def _notify_result(course_text: str, status: str, last_error: str | None) -> None:
+async def _notify_result(employee_id: str, course_text: str, status: str, last_error: str | None) -> None:
     async with connect() as db:
-        cursor = await db.execute("SELECT token FROM devices")
+        cursor = await db.execute("SELECT token FROM devices WHERE employee_id = ?", (employee_id,))
         tokens = [r["token"] for r in await cursor.fetchall()]
 
     if status == "submitted":

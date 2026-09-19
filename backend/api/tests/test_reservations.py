@@ -11,11 +11,14 @@ os.environ["DB_PATH"] = _db_path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from datetime import date, timedelta
+import sqlite3
+import time
+from datetime import date, datetime, timedelta
 
 from fastapi import HTTPException
 
-from app import auth, courses, google_form, reservations, storage
+from app import auth, courses, google_form, main as api, push, reservations, scheduler, storage
+from app.scheduling import TAIPEI
 
 
 async def fake_submit_form(name, employee_id, course_text):
@@ -192,6 +195,159 @@ async def main():
     await courses.replace_courses([a])
     assert await courses.list_courses() == [a]
     print("PASS: course list replace")
+
+    async def insert_pending(rid, employee_id, fire_date, name="並行測試", time_="0900"):
+        async with storage.connect() as db:
+            await db.execute(
+                """INSERT INTO reservations
+                   (id, course_id, course_date, course_time, course_name, reporter_name,
+                    employee_id, fire_date, status, submitted_at, http_status, last_error, created_at)
+                   VALUES (?, ?, ?, ?, ?, '測試', ?, ?, 'pending', NULL, NULL, NULL, '2020-01-01T00:00:00+08:00')""",
+                (rid, rid, far_date, time_, name, employee_id, fire_date),
+            )
+            await db.commit()
+
+    # Parallel submit, capped: 5 due at once run 2 at a time (not 1 by 1, not all 5).
+    running = peak = 0
+
+    async def tracked_submit(name, employee_id, course_text):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.2)
+        running -= 1
+        return 200
+
+    google_form.submit_form = tracked_submit
+    for i in range(5):
+        await insert_pending(f"par-{i}", f"E2{i}0", "2020-01-01T00:00:00+08:00")
+    t0 = time.monotonic()
+    await reservations.process_due()
+    elapsed = time.monotonic() - t0
+    assert peak == reservations.MAX_CONCURRENT_SUBMITS, peak
+    assert 0.55 < elapsed < 0.9, elapsed  # ceil(5/2) waves of 0.2s, vs 1.0s serial
+    print("PASS: due reservations submit in parallel, capped at", peak)
+
+    # Scheduler wakes at the fire moment, not on a 30s grid.
+    fired_at = []
+
+    async def timed_submit(name, employee_id, course_text):
+        fired_at.append(datetime.now(TAIPEI))
+        return 200
+
+    google_form.submit_form = timed_submit
+    fire = (datetime.now(TAIPEI) + timedelta(seconds=3)).replace(microsecond=0) + timedelta(seconds=1)
+    await insert_pending("sched-1", "E900", fire.isoformat())
+    assert 2.9 < await reservations.seconds_until_next_due() < 4.1
+    task = asyncio.create_task(scheduler.run_scheduler_loop())
+    await asyncio.sleep((fire - datetime.now(TAIPEI)).total_seconds() + 0.5)
+    task.cancel()
+    assert fired_at and 0 <= (fired_at[0] - fire).total_seconds() < 0.3, (fired_at, fire)
+    print("PASS: scheduler fires within 0.3s of fire_date")
+
+    # A reservation created while the scheduler sleeps re-plans that sleep.
+    reservations.new_pending.clear()
+    await reservations.create_reservation(
+        course_id="wake-1", course_date=far_date, course_time="1900", course_name="喚醒測試",
+        reporter_name="測試", employee_id="E901",
+    )
+    assert reservations.new_pending.is_set()
+    print("PASS: creating a reservation wakes the scheduler")
+
+    # Push goes only to the reservation's owner (and follows a token moved to another owner).
+    pushed = []
+
+    async def fake_push(token, title, body):
+        pushed.append(token)
+
+    push.send_push = fake_push
+    google_form.submit_form = fake_submit_form
+    await reservations.register_device("tok-a1", "E401")
+    await reservations.register_device("tok-a2", "E401")
+    await reservations.register_device("tok-b", "E402")
+    await reservations.create_reservation(
+        course_id="push-1", course_date=cap_date, course_time="0700", course_name="推播測試",
+        reporter_name="測試", employee_id="E401",
+    )
+    assert sorted(pushed) == ["tok-a1", "tok-a2"], pushed
+    pushed.clear()
+    await reservations.register_device("tok-a2", "E402")
+    await reservations.create_reservation(
+        course_id="push-2", course_date=cap_date, course_time="0700", course_name="推播測試二",
+        reporter_name="測試", employee_id="E401",
+    )
+    assert pushed == ["tok-a1"], pushed
+    print("PASS: push only reaches the reservation owner's devices")
+
+    # Access control: list/cancel are confined to the caller's own employee_id unless admin.
+    auth.ADMIN_PIN = "2090"
+    kw = dict(course_date=far_date, course_time="2000", course_name="權限測試", reporter_name="測試")
+    mine = await reservations.create_reservation(course_id="idor-1", employee_id="E501", **kw)
+    theirs = await reservations.create_reservation(course_id="idor-1", employee_id="E502", **kw)
+    listed = await api.get_reservations(employee_id="E501", x_admin_pin=None)
+    assert {r["id"] for r in listed} == {mine["id"]}, listed
+    for call in (api.get_reservations(employee_id=None, x_admin_pin=None),
+                 api.delete_reservation(theirs["id"], employee_id=None, x_admin_pin=None)):
+        try:
+            await call
+            raise AssertionError("missing employee_id accepted")
+        except HTTPException as exc:
+            assert exc.status_code == 422
+    try:
+        await api.delete_reservation(theirs["id"], employee_id="E501", x_admin_pin=None)
+        raise AssertionError("cancelled someone else's reservation")
+    except HTTPException as exc:
+        assert exc.status_code == 404
+    assert any(r["id"] == theirs["id"] for r in await reservations.list_reservations())
+    everyone = await api.get_reservations(employee_id=None, x_admin_pin="2090")
+    assert {"E501", "E502"} <= {r["employee_id"] for r in everyone}
+    assert (await api.delete_reservation(theirs["id"], employee_id="E501", x_admin_pin="2090"))["ok"]
+    assert (await api.delete_reservation(mine["id"], employee_id="E501", x_admin_pin=None))["ok"]
+    print("PASS: users see/cancel only their own reservations; admin PIN sees/cancels all")
+
+    # Scope includes the class time: same person+day+name at a different time isn't blocked.
+    google_form.submit_form = fake_submit_form
+    tk = dict(course_date=cap_date, course_name="時段測試", reporter_name="測試", employee_id="E601")
+    t1 = await reservations.create_reservation(course_id="time-1", course_time="0900", **tk)
+    t2 = await reservations.create_reservation(course_id="time-2", course_time="1000", **tk)
+    t3 = await reservations.create_reservation(course_id="time-3", course_time="0900", **tk)
+    assert (t1["status"], t2["status"], t3["status"]) == ("submitted", "submitted", "failed"), (t1, t2, t3)
+    assert "已經成功送出過" in t3["last_error"]
+    print("PASS: same name, different time slot is a different scope")
+
+    # Failure lock-out ends when the person cancels the failed row and books again by hand;
+    # an already-succeeded class stays locked regardless.
+    google_form.submit_form = always_fail
+    fk = dict(course_date=cap_date, course_time="0800", course_name="重試測試", reporter_name="測試", employee_id="E602")
+    f = [await reservations.create_reservation(course_id=f"retry-{i}", **fk) for i in range(3)]
+    assert f[2]["http_status"] is None and "已經嘗試送出" in f[2]["last_error"], f[2]
+    assert await reservations.cancel_reservation(f[2]["id"], "E602")
+    google_form.submit_form = fake_submit_form
+    again = await reservations.create_reservation(course_id="retry-3", **fk)
+    assert again["status"] == "submitted", again
+    print("PASS: cancelling a failed reservation lets the person retry")
+
+    # Migration: an old-schema DB (no devices.employee_id / attempts.course_time) upgrades in place.
+    real_path = storage.DB_PATH
+    storage.DB_PATH = real_path + ".migrate"
+    with sqlite3.connect(storage.DB_PATH) as old:
+        old.executescript(
+            """CREATE TABLE devices (token TEXT PRIMARY KEY, registered_at TEXT NOT NULL);
+               INSERT INTO devices VALUES ('t', 'x');
+               CREATE TABLE submission_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id TEXT NOT NULL,
+                 course_date TEXT NOT NULL, course_name TEXT NOT NULL, attempted_at TEXT NOT NULL,
+                 succeeded INTEGER NOT NULL DEFAULT 0);
+               INSERT INTO submission_attempts (employee_id, course_date, course_name, attempted_at, succeeded)
+                 VALUES ('E1', '2026-01-01', 'n', 'x', 1);"""
+        )
+    await storage.init_db()
+    await storage.init_db()  # idempotent
+    with sqlite3.connect(storage.DB_PATH) as chk:
+        assert chk.execute("SELECT token, employee_id FROM devices").fetchall() == [("t", "")]
+        assert chk.execute("SELECT employee_id, course_time, succeeded FROM submission_attempts").fetchall() == [("E1", "", 1)]
+    os.remove(storage.DB_PATH)
+    storage.DB_PATH = real_path
+    print("PASS: schema migration keeps old rows")
 
     # Admin PIN: right one passes, wrong ones are refused and lock out after the limit.
     auth.ADMIN_PIN = "2090"

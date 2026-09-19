@@ -35,12 +35,14 @@ CREATE TABLE IF NOT EXISTS course_templates (
 );
 CREATE TABLE IF NOT EXISTS devices (
   token TEXT PRIMARY KEY,
+  employee_id TEXT NOT NULL DEFAULT '',
   registered_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS submission_attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   employee_id TEXT NOT NULL,
   course_date TEXT NOT NULL,
+  course_time TEXT NOT NULL DEFAULT '',
   course_name TEXT NOT NULL,
   attempted_at TEXT NOT NULL,
   succeeded INTEGER NOT NULL DEFAULT 0
@@ -57,6 +59,18 @@ async def init_db() -> None:
         columns = {row[1] for row in await cursor.fetchall()}
         if columns and "employee_id" not in columns:
             await db.execute("DROP TABLE submission_attempts")
+        # Migrate: devices gained employee_id (pushes go only to the booking's owner) and
+        # submission_attempts gained course_time (scope). ADD COLUMN rather than drop: old
+        # attempt rows keep counting ('' just won't match a real time, so they stop guarding —
+        # at most one re-attempt of an already-attempted class).
+        for table, column, ddl in (
+            ("devices", "employee_id", "TEXT NOT NULL DEFAULT ''"),
+            ("submission_attempts", "course_time", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            cursor = await db.execute(f"PRAGMA table_info({table})")
+            columns = {row[1] for row in await cursor.fetchall()}
+            if columns and column not in columns:
+                await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
         # Migrate: the original table had course_id TEXT NOT NULL UNIQUE (one reservation per
         # class in total). SQLite can't drop a constraint, so rebuild the table, in one
         # transaction, copying every row across in the same column order.
