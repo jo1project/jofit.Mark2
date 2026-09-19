@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - "Jofit/**"
+      - "JofitWidget/**"
+      - "Shared/**"
       - "project.yml"
       - ".github/workflows/testflight.yml"
 
