@@ -69,7 +69,9 @@ struct HistoryView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                // Not Lazy: month cards change height when expanded, and LazyVStack can fail to
+                // re-layout after that. The list is small, so eager is fine.
+                VStack(alignment: .leading, spacing: 12) {
                     if !scheduledGroups.isEmpty {
                         sectionTitle("排程中", count: scheduled.count)
                         ForEach(scheduledGroups) { group in
