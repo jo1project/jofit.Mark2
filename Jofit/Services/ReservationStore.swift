@@ -42,7 +42,15 @@ final class ReservationStore: ObservableObject {
         reservations.first { $0.course.id == courseID && $0.isBooked(by: employeeID) }
     }
 
+    /// Runs the sync in its own Task: `.refreshable` cancels its task whenever the view re-renders
+    /// mid-refresh (and this store's own @Published updates cause exactly that), which would abort
+    /// the in-flight request and surface as a "cancelled" error. Awaiting an unstructured Task's
+    /// `.value` doesn't forward that cancellation.
     func refresh() async {
+        await Task { await performRefresh() }.value
+    }
+
+    private func performRefresh() async {
         await syncDeviceToken()
         guard adminPIN != nil || !employeeID.isEmpty else { return }
         isSyncing = true
