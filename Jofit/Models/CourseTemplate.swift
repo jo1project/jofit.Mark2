@@ -3,11 +3,11 @@ import Foundation
 /// A recurring weekly class slot, e.g. "every Monday at 18:35, Zumba" — `courses.json` stores
 /// these rather than one-off dates, because the gym's timetable repeats every week.
 /// `CourseStore` expands each template into concrete `Course` instances, one per upcoming week.
-struct CourseTemplate: Codable {
+struct CourseTemplate: Codable, Identifiable, Hashable {
     let id: String
-    let weekday: String
-    let time: String
-    let name: String
+    var weekday: String
+    var time: String
+    var name: String
 
     private static let weekdayNumbers: [String: Int] = [
         "週日": 1, "週一": 2, "週二": 3, "週三": 4, "週四": 5, "週五": 6, "週六": 7,

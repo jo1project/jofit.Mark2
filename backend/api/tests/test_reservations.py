@@ -13,7 +13,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from datetime import date, timedelta
 
-from app import google_form, reservations, storage
+from fastapi import HTTPException
+
+from app import auth, courses, google_form, reservations, storage
 
 
 async def fake_submit_form(name, employee_id, course_text):
@@ -152,6 +154,50 @@ async def main():
     assert any(r["id"] == result_c["id"] for r in await reservations.list_reservations())
     assert await reservations.cancel_reservation(results_a[0]["id"]) is True
     print("PASS: submitted can't be cancelled, failed can")
+
+    # Bulk cancel: only pending rows go; a submitted one in the same batch survives.
+    async with storage.connect() as db:
+        for rid, status in (("bulk-1", "pending"), ("bulk-2", "pending"), ("bulk-3", "submitted")):
+            await db.execute(
+                """INSERT INTO reservations
+                   (id, course_id, course_date, course_time, course_name, reporter_name,
+                    employee_id, fire_date, status, submitted_at, http_status, last_error, created_at)
+                   VALUES (?, ?, ?, '0900', '批次取消', '測試', 'E008',
+                           '2099-01-01T00:00:00+08:00', ?, NULL, NULL, NULL, '2020-01-01T00:00:00+08:00')""",
+                (rid, rid, cap_date, status),
+            )
+        await db.commit()
+    assert await reservations.cancel_pending([]) == 0
+    assert await reservations.cancel_pending(["bulk-1", "bulk-2", "bulk-3", "nope"]) == 2
+    left = {r["id"] for r in await reservations.list_reservations()}
+    assert "bulk-3" in left and not ({"bulk-1", "bulk-2"} & left), left
+    print("PASS: bulk cancel removes only pending")
+
+    # Course list: replace is whole-list, ordered, and empty until first saved.
+    assert await courses.list_courses() == []
+    a = {"id": "mon-1", "weekday": "週一", "time": "1835", "name": "Zumba"}
+    b = {"id": "tue-1", "weekday": "週二", "time": "1900", "name": "TRX"}
+    await courses.replace_courses([b, a])
+    assert await courses.list_courses() == [b, a]
+    await courses.replace_courses([a])
+    assert await courses.list_courses() == [a]
+    print("PASS: course list replace")
+
+    # Admin PIN: right one passes, wrong ones are refused and lock out after the limit.
+    auth.ADMIN_PIN = "2090"
+    await auth.require_admin("2090")
+    for _ in range(auth.MAX_WRONG_PINS):
+        try:
+            await auth.require_admin("0000")
+            raise AssertionError("wrong PIN accepted")
+        except HTTPException as exc:
+            assert exc.status_code == 403
+    try:
+        await auth.require_admin("2090")  # locked out now, even with the right PIN
+        raise AssertionError("lockout not enforced")
+    except HTTPException as exc:
+        assert exc.status_code == 429
+    print("PASS: admin PIN check + lockout")
 
 
 asyncio.run(main())

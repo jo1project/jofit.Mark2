@@ -70,6 +70,15 @@ final class ReservationStore: ObservableObject {
         }
     }
 
+    /// Admin bulk cancel of pending reservations; throws (wrong PIN, network) so the caller can
+    /// show it. Returns how many were really cancelled — may be fewer than asked if some fired
+    /// in the meantime.
+    func cancelPending(_ targets: [Reservation], pin: String) async throws -> Int {
+        let cancelled = try await client.cancelReservations(ids: targets.map(\.id), pin: pin)
+        await refresh()
+        return cancelled
+    }
+
     func registerDeviceToken(_ token: String) async {
         try? await client.registerDeviceToken(token)
     }

@@ -1,11 +1,12 @@
 import asyncio
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Body, Depends, FastAPI, HTTPException
 
-from . import reservations, scheduler, storage
-from .auth import require_auth
-from .models import DeviceTokenIn, ReservationIn, ReservationOut
+from . import courses, reservations, scheduler, storage
+from .auth import require_admin, require_auth
+from .models import CancelIn, CourseTemplateIO, DeviceTokenIn, ReservationIn, ReservationOut
 
 
 @asynccontextmanager
@@ -55,4 +56,23 @@ async def delete_reservation(reservation_id: str) -> dict:
 @app.post("/device-token", dependencies=[Depends(require_auth)])
 async def post_device_token(body: DeviceTokenIn) -> dict:
     await reservations.register_device(body.token)
+    return {"ok": True}
+
+
+@app.post("/reservations/cancel", dependencies=[Depends(require_auth), Depends(require_admin)])
+async def cancel_reservations(body: CancelIn) -> dict:
+    return {"cancelled": await reservations.cancel_pending(body.ids)}
+
+
+@app.get("/courses", response_model=list[CourseTemplateIO], dependencies=[Depends(require_auth)])
+async def get_courses() -> list[dict]:
+    # Empty until an admin first saves; the app then falls back to the repo's courses.json.
+    return await courses.list_courses()
+
+
+@app.put("/courses", dependencies=[Depends(require_auth), Depends(require_admin)])
+async def put_courses(body: Annotated[list[CourseTemplateIO], Body(min_length=1)]) -> dict:
+    if len({t.id for t in body}) != len(body):
+        raise HTTPException(status_code=422, detail="Duplicate course id")
+    await courses.replace_courses([t.model_dump() for t in body])
     return {"ok": True}

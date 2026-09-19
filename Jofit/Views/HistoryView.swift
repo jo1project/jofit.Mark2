@@ -1,10 +1,19 @@
 import SwiftUI
 
 struct HistoryView: View {
+    @EnvironmentObject private var settings: UserSettings
     @EnvironmentObject private var reservationStore: ReservationStore
     @State private var expandedMonths: Set<String> = []
     @State private var hasSetInitialExpansion = false
     @State private var reservationPendingCancel: Reservation?
+
+    // Admin bulk cancel (see `UserSettings.isAdmin`): pick pending rows, confirm with the PIN.
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<String> = []
+    @State private var showPinPrompt = false
+    @State private var pin = ""
+    @State private var isCancelling = false
+    @State private var resultMessage: String?
 
     private struct FireGroup: Identifiable {
         let fireDate: Date
@@ -31,6 +40,16 @@ struct HistoryView: View {
 
     private var scheduled: [Reservation] {
         reservationStore.reservations.filter { $0.status == .pending || $0.status == .submitting }
+    }
+
+    /// Only reservations still waiting can be bulk-cancelled; a submitting one is mid-POST and
+    /// can't be recalled, and a submitted one can't be un-submitted.
+    private var pending: [Reservation] {
+        reservationStore.reservations.filter { $0.status == .pending }
+    }
+
+    private var selectedTargets: [Reservation] {
+        pending.filter { selectedIDs.contains($0.id) }
     }
 
     private var failed: [Reservation] {
@@ -100,10 +119,39 @@ struct HistoryView: View {
                 .padding(.horizontal, 16)
             }
             .contentMargins(.bottom, 24, for: .scrollContent)
-            .clearOfTabBar()
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("預約紀錄")
+            .toolbar {
+                if settings.isAdmin && (isSelecting || !pending.isEmpty) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(isSelecting ? "完成" : "選取") {
+                            isSelecting.toggle()
+                            selectedIDs = []
+                        }
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if isSelecting { selectionBar }
+            }
+            .clearOfTabBar()
             .cancelConfirmation($reservationPendingCancel)
+            .alert("輸入管理密碼", isPresented: $showPinPrompt) {
+                SecureField("密碼", text: $pin)
+                    .keyboardType(.numberPad)
+                Button("取消", role: .cancel) { pin = "" }
+                Button("取消 \(selectedTargets.count) 筆預約", role: .destructive) { cancelSelected() }
+            } message: {
+                Text("將取消 \(selectedTargets.count) 筆排程中的預約，無法復原。")
+            }
+            .alert(
+                "取消結果",
+                isPresented: Binding(get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })
+            ) {
+                Button("好") {}
+            } message: {
+                Text(resultMessage ?? "")
+            }
             .refreshable {
                 await reservationStore.refresh()
             }
@@ -123,6 +171,57 @@ struct HistoryView: View {
                 expandedMonths.insert(key)
                 hasSetInitialExpansion = true
             }
+        }
+    }
+
+    // MARK: Bulk cancel
+
+    private var selectionBar: some View {
+        let allSelected = !pending.isEmpty && selectedTargets.count == pending.count
+        return HStack(spacing: 16) {
+            Button(allSelected ? "取消全選" : "全選") {
+                selectedIDs = allSelected ? [] : Set(pending.map(\.id))
+            }
+            .font(.body.weight(Theme.Weight.strong))
+            .foregroundStyle(Theme.accent)
+            Button {
+                pin = ""
+                showPinPrompt = true
+            } label: {
+                if isCancelling {
+                    ProgressView().tint(Theme.brand).frame(maxWidth: .infinity)
+                } else {
+                    Text("取消所選（\(selectedTargets.count)）").frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.primary)
+            .disabled(selectedTargets.isEmpty || isCancelling)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    private func cancelSelected() {
+        let entered = pin
+        pin = ""
+        // A blank PIN would just count as a wrong attempt toward the backend's lockout.
+        guard !entered.isEmpty else { resultMessage = "請輸入管理密碼"; return }
+        let targets = selectedTargets
+        isCancelling = true
+        Task {
+            do {
+                let cancelled = try await reservationStore.cancelPending(targets, pin: entered)
+                selectedIDs = []
+                isSelecting = false
+                resultMessage = cancelled == targets.count
+                    ? "已取消 \(cancelled) 筆預約。"
+                    : "已取消 \(cancelled) 筆，另外 \(targets.count - cancelled) 筆已經開始送出或已送出，無法取消。"
+            } catch {
+                // Keep the selection so a mistyped PIN can just be retried.
+                resultMessage = error.localizedDescription
+            }
+            isCancelling = false
         }
     }
 
@@ -212,7 +311,13 @@ struct HistoryView: View {
 
     private func reservationRow(_ reservation: Reservation) -> some View {
         let course = reservation.course
+        let selectable = isSelecting && reservation.status == .pending
         return HStack(spacing: 12) {
+            if selectable {
+                Image(systemName: selectedIDs.contains(reservation.id) ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(selectedIDs.contains(reservation.id) ? Theme.accent : Theme.textSecondary)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 Text(course.name)
                     .font(.body.weight(Theme.Weight.strong))
@@ -229,7 +334,7 @@ struct HistoryView: View {
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 4) {
                 StatusPill(status: reservation.status)
-                if reservation.canDismiss {
+                if reservation.canDismiss && !isSelecting {
                     Button(reservation.status == .failed ? "移除" : "取消") {
                         reservationPendingCancel = reservation
                     }
@@ -242,6 +347,11 @@ struct HistoryView: View {
             }
         }
         .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard selectable else { return }
+            if !selectedIDs.insert(reservation.id).inserted { selectedIDs.remove(reservation.id) }
+        }
     }
 
     // MARK: Formatting

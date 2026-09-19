@@ -8,6 +8,10 @@ enum BackendError: Error, LocalizedError {
         switch self {
         case .invalidResponse:
             return "伺服器回應格式錯誤"
+        case .server(403, _):
+            return "管理密碼錯誤"
+        case .server(429, _):
+            return "密碼錯誤次數過多，請 15 分鐘後再試"
         case .server(let code, let message):
             return "伺服器錯誤（\(code)）" + (message.map { "：\($0)" } ?? "")
         }
@@ -56,18 +60,39 @@ struct BackendClient {
         _ = try await send("/reservations/\(id)", method: "DELETE")
     }
 
+    /// Admin only (needs the PIN, which the backend checks). Returns how many were actually
+    /// cancelled — rows that started submitting in the meantime are skipped.
+    func cancelReservations(ids: [String], pin: String) async throws -> Int {
+        let body = try JSONEncoder().encode(["ids": ids])
+        let data = try await send("/reservations/cancel", method: "POST", body: body, pin: pin)
+        return try JSONDecoder().decode([String: Int].self, from: data)["cancelled"] ?? 0
+    }
+
+    /// Empty until an admin has saved a course list once.
+    func listCourses() async throws -> [CourseTemplate] {
+        let data = try await send("/courses")
+        return try JSONDecoder().decode([CourseTemplate].self, from: data)
+    }
+
+    /// Admin only: replaces the whole shared course list.
+    func saveCourses(_ templates: [CourseTemplate], pin: String) async throws {
+        let body = try JSONEncoder().encode(templates)
+        _ = try await send("/courses", method: "PUT", body: body, pin: pin)
+    }
+
     func registerDeviceToken(_ token: String) async throws {
         let body = try JSONEncoder().encode(["token": token])
         _ = try await send("/device-token", method: "POST", body: body)
     }
 
-    private func send(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
+    private func send(_ path: String, method: String = "GET", body: Data? = nil, pin: String? = nil) async throws -> Data {
         guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespaces) + path) else {
             throw BackendError.invalidResponse
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let pin { request.setValue(pin, forHTTPHeaderField: "X-Admin-Pin") }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = body

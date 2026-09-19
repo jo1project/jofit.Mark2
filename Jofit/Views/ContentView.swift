@@ -12,13 +12,14 @@ struct ContentView: View {
     @State private var tabBarHeight: CGFloat = 72
 
     private enum AppTab: CaseIterable {
-        case courses, history, settings
+        case courses, history, settings, admin
 
         var title: String {
             switch self {
             case .courses: return "課程"
             case .history: return "紀錄"
             case .settings: return "設定"
+            case .admin: return "編輯"
             }
         }
 
@@ -27,8 +28,14 @@ struct ContentView: View {
             case .courses: return "calendar"
             case .history: return "clock.arrow.circlepath"
             case .settings: return "gearshape"
+            case .admin: return "square.and.pencil"
             }
         }
+    }
+
+    /// The edit tab exists only for the admin (see `UserSettings.isAdmin`).
+    private var visibleTabs: [AppTab] {
+        AppTab.allCases.filter { $0 != .admin || settings.isAdmin }
     }
 
     var body: some View {
@@ -38,7 +45,7 @@ struct ContentView: View {
         // floats as an overlay; each screen reserves its height itself via `clearOfTabBar()`,
         // because an outer safe-area inset does not reach inside NavigationStack.
         ZStack {
-            ForEach(AppTab.allCases, id: \.self) { item in
+            ForEach(visibleTabs, id: \.self) { item in
                 page(item)
                     .opacity(tab == item ? 1 : 0)
                     .allowsHitTesting(tab == item)
@@ -56,6 +63,9 @@ struct ContentView: View {
         .task {
             await courseStore.refresh()
             await reservationStore.refresh()
+        }
+        .onChange(of: settings.isAdmin) { _, isAdmin in
+            if !isAdmin && tab == .admin { tab = .settings }
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
@@ -81,12 +91,13 @@ extension ContentView {
         case .courses: CoursesView()
         case .history: HistoryView()
         case .settings: SettingsView()
+        case .admin: EditCoursesView()
         }
     }
 
     private var tabBar: some View {
         HStack(spacing: 4) {
-            ForEach(AppTab.allCases, id: \.self) { item in
+            ForEach(visibleTabs, id: \.self) { item in
                 let isOn = tab == item
                 Button {
                     withAnimation(.snappy(duration: 0.2)) { tab = item }

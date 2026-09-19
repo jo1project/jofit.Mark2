@@ -100,6 +100,20 @@ async def cancel_reservation(reservation_id: str) -> bool:
         return cursor.rowcount > 0
 
 
+async def cancel_pending(ids: list[str]) -> int:
+    """Bulk cancel for the admin screen. Pending only (not failed): "cancel everything
+    scheduled". Anything already submitting/submitted is left alone, same as a single cancel."""
+    if not ids:
+        return 0
+    marks = ",".join("?" * len(ids))
+    async with connect() as db:
+        cursor = await db.execute(
+            f"DELETE FROM reservations WHERE status = 'pending' AND id IN ({marks})", ids
+        )
+        await db.commit()
+        return cursor.rowcount
+
+
 async def process_due() -> None:
     now = datetime.now(TAIPEI).replace(microsecond=0)
     async with connect() as db:

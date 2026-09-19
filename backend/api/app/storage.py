@@ -21,6 +21,13 @@ CREATE TABLE IF NOT EXISTS reservations (
   last_error TEXT,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS course_templates (
+  id TEXT PRIMARY KEY,
+  weekday TEXT NOT NULL,
+  time TEXT NOT NULL,
+  name TEXT NOT NULL,
+  position INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS devices (
   token TEXT PRIMARY KEY,
   registered_at TEXT NOT NULL

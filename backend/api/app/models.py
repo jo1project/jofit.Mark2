@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class CourseIn(BaseModel):
@@ -33,3 +35,15 @@ class ReservationOut(BaseModel):
 
 class DeviceTokenIn(BaseModel):
     token: str
+
+
+class CourseTemplateIO(BaseModel):
+    """One weekly-recurring class slot, same shape as an entry in the repo's courses.json."""
+    id: str = Field(min_length=1)
+    weekday: Literal["週日", "週一", "週二", "週三", "週四", "週五", "週六"]
+    time: str = Field(pattern=r"^([01][0-9]|2[0-3])[0-5][0-9]$")  # "HHmm", 24-hour
+    name: str = Field(min_length=1)
+
+
+class CancelIn(BaseModel):
+    ids: list[str]

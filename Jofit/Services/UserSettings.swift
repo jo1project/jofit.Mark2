@@ -38,6 +38,10 @@ final class UserSettings: ObservableObject {
         theme = AppTheme.current
     }
 
+    /// Soft gate only (the name is just typed into Settings): it decides which screens show. The
+    /// real protection is the admin PIN the backend checks on every admin action.
+    var isAdmin: Bool { name.trimmingCharacters(in: .whitespaces) == "林晏瑜" }
+
     var isComplete: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty &&
         !employeeID.trimmingCharacters(in: .whitespaces).isEmpty
