@@ -19,6 +19,7 @@ struct SettingsView: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .clearOfTabBar()
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("設定")
         }

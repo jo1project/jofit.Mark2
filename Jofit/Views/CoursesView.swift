@@ -136,6 +136,7 @@ struct CoursesView: View {
                     submitBar
                 }
             }
+            .clearOfTabBar()
             .confirmationDialog(
                 "這堂課要取消預約嗎？",
                 isPresented: Binding(

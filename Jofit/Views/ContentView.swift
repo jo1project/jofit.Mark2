@@ -8,6 +8,8 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var tab: AppTab = .courses
+    /// Measured height of the floating tab bar (initial value is an estimate for the first frame).
+    @State private var tabBarHeight: CGFloat = 72
 
     private enum AppTab: CaseIterable {
         case courses, history, settings
@@ -32,8 +34,9 @@ struct ContentView: View {
     var body: some View {
         // A custom floating bar instead of TabView: the system tab bar can't be given a gold
         // selection capsule reliably across iOS versions. All three screens stay alive in the
-        // ZStack (just hidden) so unsent selections and filters survive tab switches, and the
-        // bar is a real bottom safe-area inset so scroll content ends above it.
+        // ZStack (just hidden) so unsent selections and filters survive tab switches. The bar
+        // floats as an overlay; each screen reserves its height itself via `clearOfTabBar()`,
+        // because an outer safe-area inset does not reach inside NavigationStack.
         ZStack {
             ForEach(AppTab.allCases, id: \.self) { item in
                 page(item)
@@ -42,8 +45,10 @@ struct ContentView: View {
                     .accessibilityHidden(tab != item)
             }
         }
+        .environment(\.tabBarInset, tabBarHeight)
         .background(Theme.background.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom, spacing: 0) { tabBar }
+        .overlay(alignment: .bottom) { tabBar }
+        .onPreferenceChange(TabBarHeightKey.self) { tabBarHeight = $0 }
         .tint(Theme.accent)
         .task {
             await courseStore.refresh()
@@ -105,5 +110,42 @@ extension ContentView {
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .padding(.horizontal, 24)
         .padding(.bottom, 4)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: TabBarHeightKey.self, value: proxy.size.height)
+        })
+    }
+}
+
+private struct TabBarHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+private struct TabBarInsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var tabBarInset: CGFloat {
+        get { self[TabBarInsetKey.self] }
+        set { self[TabBarInsetKey.self] = newValue }
+    }
+}
+
+private struct TabBarClearance: ViewModifier {
+    @Environment(\.tabBarInset) private var inset
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: inset + 8)
+        }
+    }
+}
+
+extension View {
+    /// Keeps this screen's content (and any bottom bar attached BEFORE this call) above the
+    /// floating tab bar. Apply it last among the bottom `safeAreaInset`s so it is outermost.
+    func clearOfTabBar() -> some View {
+        modifier(TabBarClearance())
     }
 }

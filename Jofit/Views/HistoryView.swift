@@ -92,6 +92,7 @@ struct HistoryView: View {
                 .padding(.horizontal, 16)
             }
             .contentMargins(.bottom, 24, for: .scrollContent)
+            .clearOfTabBar()
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("預約紀錄")
             .refreshable {
