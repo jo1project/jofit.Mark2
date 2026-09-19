@@ -5,10 +5,11 @@ import aiosqlite
 
 DB_PATH = os.environ.get("DB_PATH", "/data/jofit.db")
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS reservations (
+# One reservation per person per class (a class has many students), so uniqueness is on the
+# pair, not on course_id alone.
+RESERVATIONS_COLUMNS = """
   id TEXT PRIMARY KEY,
-  course_id TEXT NOT NULL UNIQUE,
+  course_id TEXT NOT NULL,
   course_date TEXT NOT NULL,
   course_time TEXT NOT NULL,
   course_name TEXT NOT NULL,
@@ -19,8 +20,12 @@ CREATE TABLE IF NOT EXISTS reservations (
   submitted_at TEXT,
   http_status INTEGER,
   last_error TEXT,
-  created_at TEXT NOT NULL
-);
+  created_at TEXT NOT NULL,
+  UNIQUE (course_id, employee_id)
+"""
+
+SCHEMA = f"""
+CREATE TABLE IF NOT EXISTS reservations ({RESERVATIONS_COLUMNS});
 CREATE TABLE IF NOT EXISTS course_templates (
   id TEXT PRIMARY KEY,
   weekday TEXT NOT NULL,
@@ -52,6 +57,20 @@ async def init_db() -> None:
         columns = {row[1] for row in await cursor.fetchall()}
         if columns and "employee_id" not in columns:
             await db.execute("DROP TABLE submission_attempts")
+        # Migrate: the original table had course_id TEXT NOT NULL UNIQUE (one reservation per
+        # class in total). SQLite can't drop a constraint, so rebuild the table, in one
+        # transaction, copying every row across in the same column order.
+        cursor = await db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'reservations'")
+        row = await cursor.fetchone()
+        if row and "course_id TEXT NOT NULL UNIQUE" in row[0]:
+            await db.executescript(
+                f"""BEGIN;
+                ALTER TABLE reservations RENAME TO reservations_old;
+                CREATE TABLE reservations ({RESERVATIONS_COLUMNS});
+                INSERT INTO reservations SELECT * FROM reservations_old;
+                DROP TABLE reservations_old;
+                COMMIT;"""
+            )
         await db.executescript(SCHEMA)
         await db.commit()
 

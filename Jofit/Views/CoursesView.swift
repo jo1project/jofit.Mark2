@@ -246,7 +246,7 @@ struct CoursesView: View {
 
     @ViewBuilder
     private func dateChip(_ course: Course) -> some View {
-        let reservation = reservationStore.reservation(for: course.id)
+        let reservation = reservationStore.reservation(for: course.id, employeeID: settings.employeeID)
         let isSelected = selectedInstanceIDs.contains(course.id)
 
         DateChip(text: course.dateText, state: chipState(reservation: reservation, isSelected: isSelected)) {

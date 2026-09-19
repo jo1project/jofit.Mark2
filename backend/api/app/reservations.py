@@ -43,11 +43,16 @@ async def create_reservation(
     course_id: str, course_date: str, course_time: str, course_name: str,
     reporter_name: str, employee_id: str,
 ) -> dict[str, Any]:
-    """Idempotent per course: a second call for a course that already has a reservation just
-    returns the existing one instead of creating a duplicate — both via an upfront check and a
-    UNIQUE constraint on course_id to close the race if two requests land at the same time."""
+    """Idempotent per (course, employee): a second call for a class that this person already
+    has a reservation for just returns the existing one instead of creating a duplicate — both
+    via an upfront check and a UNIQUE (course_id, employee_id) constraint to close the race if
+    two requests land at the same time. Different people booking the same class each get their
+    own reservation."""
+    reporter_name, employee_id = reporter_name.strip(), employee_id.strip()
     async with connect() as db:
-        cursor = await db.execute("SELECT * FROM reservations WHERE course_id = ?", (course_id,))
+        cursor = await db.execute(
+            "SELECT * FROM reservations WHERE course_id = ? AND employee_id = ?", (course_id, employee_id)
+        )
         existing = await cursor.fetchone()
         if existing:
             return _row_to_dict(existing)
@@ -68,7 +73,9 @@ async def create_reservation(
             )
             await db.commit()
         except aiosqlite.IntegrityError:
-            cursor = await db.execute("SELECT * FROM reservations WHERE course_id = ?", (course_id,))
+            cursor = await db.execute(
+                "SELECT * FROM reservations WHERE course_id = ? AND employee_id = ?", (course_id, employee_id)
+            )
             row = await cursor.fetchone()
             return _row_to_dict(row)
 

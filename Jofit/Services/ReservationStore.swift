@@ -24,8 +24,10 @@ final class ReservationStore: ObservableObject {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
-    func reservation(for courseID: String) -> Reservation? {
-        reservations.first { $0.course.id == courseID }
+    /// One reservation per person per class: other students' reservations for the same class
+    /// don't count as this user's.
+    func reservation(for courseID: String, employeeID: String) -> Reservation? {
+        reservations.first { $0.course.id == courseID && $0.isBooked(by: employeeID) }
     }
 
     func refresh() async {

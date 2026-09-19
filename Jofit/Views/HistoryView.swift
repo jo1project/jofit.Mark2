@@ -47,10 +47,8 @@ struct HistoryView: View {
 
     private var visible: [Reservation] {
         guard !showAll else { return reservationStore.reservations }
-        let mine = settings.employeeID.trimmingCharacters(in: .whitespaces)
-        return reservationStore.reservations.filter {
-            !mine.isEmpty && ($0.employeeID ?? "").trimmingCharacters(in: .whitespaces) == mine
-        }
+        guard !settings.employeeID.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
+        return reservationStore.reservations.filter { $0.isBooked(by: settings.employeeID) }
     }
 
     private var scheduled: [Reservation] {

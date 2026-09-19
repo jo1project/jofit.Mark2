@@ -155,6 +155,16 @@ async def main():
     assert await reservations.cancel_reservation(results_a[0]["id"]) is True
     print("PASS: submitted can't be cancelled, failed can")
 
+    # Two different people can each book the same class; the same person twice gets one row.
+    far_date = (date.today() + timedelta(days=20)).isoformat()  # not due yet, stays pending
+    kw = dict(course_id="shared-1", course_date=far_date, course_time="1800", course_name="共同課")
+    p1 = await reservations.create_reservation(**kw, reporter_name="甲", employee_id="E101")
+    p2 = await reservations.create_reservation(**kw, reporter_name="乙", employee_id="E102")
+    p1_again = await reservations.create_reservation(**kw, reporter_name="甲", employee_id=" E101 ")
+    assert p1["id"] != p2["id"] and p1_again["id"] == p1["id"], (p1, p2, p1_again)
+    assert p1["employee_id"] == "E101", p1
+    print("PASS: same class, two people -> two reservations; same person twice -> one")
+
     # Bulk cancel: only pending rows go; a submitted one in the same batch survives.
     async with storage.connect() as db:
         for rid, status in (("bulk-1", "pending"), ("bulk-2", "pending"), ("bulk-3", "submitted")):

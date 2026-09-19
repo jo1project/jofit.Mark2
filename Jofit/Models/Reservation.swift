@@ -15,6 +15,10 @@ struct Reservation: Identifiable, Codable {
     var reporterName: String?
     var employeeID: String?
 
+    func isBooked(by employeeID: String) -> Bool {
+        (self.employeeID ?? "").trimmingCharacters(in: .whitespaces) == employeeID.trimmingCharacters(in: .whitespaces)
+    }
+
     /// Cancellable only while still waiting for a future fire time (courses under 6 days out
     /// are sent immediately, so they never wait). A failed one can be cleared to book again.
     /// Submitting/submitted can't be recalled — Google Forms has no undo.
