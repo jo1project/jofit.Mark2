@@ -22,6 +22,10 @@ struct HistoryView: View {
     @State private var isCancelling = false
     @State private var resultMessage: String?
 
+    // Admin "伺服器" tab: the backend only returns everyone's reservations for a valid PIN.
+    @State private var showUnlockPrompt = false
+    @State private var unlockPin = ""
+
     private struct FireGroup: Identifiable {
         let fireDate: Date
         let items: [Reservation]
@@ -46,7 +50,7 @@ struct HistoryView: View {
     }
 
     private var visible: [Reservation] {
-        guard !showAll else { return reservationStore.reservations }
+        guard !showAll else { return reservationStore.isAdminUnlocked ? reservationStore.reservations : [] }
         return reservationStore.reservations.filter { $0.isBooked(by: settings.employeeID) }
     }
 
@@ -156,6 +160,14 @@ struct HistoryView: View {
             } message: {
                 Text("將取消 \(selectedTargets.count) 筆排程中的預約\(showAll ? "（可能包含其他人的）" : "")，無法復原。")
             }
+            .alert("輸入管理密碼", isPresented: $showUnlockPrompt) {
+                SecureField("密碼", text: $unlockPin)
+                    .keyboardType(.numberPad)
+                Button("取消", role: .cancel) { unlockPin = "" }
+                Button("查看") { unlock() }
+            } message: {
+                Text("需要管理密碼才能查看所有人的預約。")
+            }
             .alert(
                 "取消結果",
                 isPresented: Binding(get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })
@@ -172,11 +184,12 @@ struct HistoryView: View {
                     ContentUnavailableView(
                         showAll ? "伺服器上沒有預約" : "還沒有預約紀錄",
                         systemImage: "tray",
-                        description: Text(showAll ? "" : "到「課程」挑一堂想上的課吧，剩下的交給我們，你只要準時出現就好。")
+                        description: Text(showAll ? (reservationStore.isAdminUnlocked ? "" : "尚未輸入管理密碼") : "到「課程」挑一堂想上的課吧，剩下的交給我們，你只要準時出現就好。")
                     )
                 }
             }
             .onAppear {
+                if showAll && !reservationStore.isAdminUnlocked { showUnlockPrompt = true }
                 guard !hasSetInitialExpansion,
                       let key = submittedByMonth.first(where: { isCurrentMonth($0.key) })?.key ?? submittedByMonth.last?.key
                 else { return }
@@ -212,6 +225,19 @@ struct HistoryView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+
+    private func unlock() {
+        let entered = unlockPin
+        unlockPin = ""
+        guard !entered.isEmpty else { return }
+        Task {
+            do {
+                try await reservationStore.unlockAdmin(pin: entered)
+            } catch {
+                reservationStore.lastSyncError = error.localizedDescription
+            }
+        }
     }
 
     private func cancelSelected() {

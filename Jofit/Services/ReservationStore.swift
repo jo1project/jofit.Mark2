@@ -12,9 +12,21 @@ final class ReservationStore: ObservableObject {
     @Published private(set) var reservations: [Reservation] = []
     @Published private(set) var isSyncing = false
     @Published var lastSyncError: String?
+    /// True once the admin PIN has been accepted this session; from then on `reservations` holds
+    /// everyone's (the backend otherwise only returns the caller's own).
+    @Published private(set) var isAdminUnlocked = false
 
     private let client = BackendClient()
     private let fileURL: URL
+    private var adminPIN: String?
+    private var deviceToken: String?
+    private var registeredDevice: String?
+
+    /// Every backend call is scoped to this: the backend has no login, it trusts the caller to
+    /// name themselves and only hands back / lets them cancel that person's reservations.
+    private var employeeID: String {
+        (UserDefaults.standard.string(forKey: UserSettings.employeeIDKey) ?? "").trimmingCharacters(in: .whitespaces)
+    }
 
     init() {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -31,19 +43,38 @@ final class ReservationStore: ObservableObject {
     }
 
     func refresh() async {
+        await syncDeviceToken()
+        guard adminPIN != nil || !employeeID.isEmpty else { return }
         isSyncing = true
         defer { isSyncing = false }
         do {
-            reservations = try await client.listReservations()
+            reservations = try await client.listReservations(employeeID: employeeID, pin: adminPIN)
             lastSyncError = nil
             saveCache()
         } catch {
+            if case BackendError.server(403, _) = error { lockAdmin() }
             lastSyncError = error.localizedDescription
         }
     }
 
+    /// Throws (wrong PIN, network) so the caller can show it. On success the PIN is kept in
+    /// memory only, so refreshes keep returning everyone's reservations until the app quits.
+    func unlockAdmin(pin: String) async throws {
+        reservations = try await client.listReservations(employeeID: employeeID, pin: pin)
+        adminPIN = pin
+        isAdminUnlocked = true
+        lastSyncError = nil
+        saveCache()
+    }
+
+    private func lockAdmin() {
+        adminPIN = nil
+        isAdminUnlocked = false
+    }
+
     @discardableResult
     func reserve(course: Course, name: String, employeeID: String) async -> Reservation? {
+        await syncDeviceToken()
         do {
             let reservation = try await client.createReservation(course: course, name: name, employeeID: employeeID)
             upsert(reservation)
@@ -57,7 +88,7 @@ final class ReservationStore: ObservableObject {
 
     func cancel(_ reservation: Reservation) async {
         do {
-            try await client.cancelReservation(id: reservation.id)
+            try await client.cancelReservation(id: reservation.id, employeeID: employeeID, pin: adminPIN)
         } catch BackendError.server(404, _) {
             // Already gone, or sent in the meantime (a lost DELETE response lands here too);
             // the refresh below shows which.
@@ -82,7 +113,20 @@ final class ReservationStore: ObservableObject {
     }
 
     func registerDeviceToken(_ token: String) async {
-        try? await client.registerDeviceToken(token)
+        deviceToken = token
+        await syncDeviceToken()
+    }
+
+    /// The backend sends a push only to the device registered under the reservation's employee
+    /// ID, so the token has to be (re)registered once both it and the ID are known, and again if
+    /// the ID changes. Called on every refresh/reserve, which covers both without observing.
+    private func syncDeviceToken() async {
+        let id = employeeID
+        guard let token = deviceToken, !id.isEmpty, registeredDevice != "\(token)|\(id)" else { return }
+        do {
+            try await client.registerDeviceToken(token, employeeID: id)
+            registeredDevice = "\(token)|\(id)"
+        } catch {}
     }
 
     private func upsert(_ reservation: Reservation) {

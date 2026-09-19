@@ -6,7 +6,11 @@ import UserNotifications
 final class AppDelegate: NSObject, UIApplicationDelegate {
     /// Set by `JofitApp` once the environment objects exist, so the token can reach
     /// `ReservationStore` as soon as APNs hands it over.
-    var onDeviceToken: ((String) -> Void)?
+    var onDeviceToken: ((String) -> Void)? {
+        // The token can arrive before `JofitApp.onAppear` installs the handler; replay it.
+        didSet { if let latestToken { onDeviceToken?(latestToken) } }
+    }
+    private var latestToken: String?
 
     func application(
         _ application: UIApplication,
@@ -19,6 +23,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let tokenString = deviceToken.map { String(format: "%02x", $0) }.joined()
+        latestToken = tokenString
         onDeviceToken?(tokenString)
     }
 

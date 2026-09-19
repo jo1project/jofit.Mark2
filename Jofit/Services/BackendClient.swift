@@ -32,8 +32,11 @@ struct BackendClient {
     var baseURL: String = defaultBaseURL
     var token: String = defaultToken
 
-    func listReservations() async throws -> [Reservation] {
-        let data = try await send("/reservations")
+    /// The backend only returns the caller's own reservations (`employeeID`); with the admin
+    /// `pin` it returns everyone's.
+    func listReservations(employeeID: String, pin: String? = nil) async throws -> [Reservation] {
+        let path = pin == nil ? "/reservations?employee_id=\(Self.encoded(employeeID))" : "/reservations"
+        let data = try await send(path, pin: pin)
         return try JSONDecoder().decode([ReservationDTO].self, from: data).compactMap { $0.toReservation() }
     }
 
@@ -56,8 +59,9 @@ struct BackendClient {
         return reservation
     }
 
-    func cancelReservation(id: String) async throws {
-        _ = try await send("/reservations/\(id)", method: "DELETE")
+    /// The backend only lets `employeeID` cancel their own reservation; the admin `pin` lifts that.
+    func cancelReservation(id: String, employeeID: String, pin: String? = nil) async throws {
+        _ = try await send("/reservations/\(id)?employee_id=\(Self.encoded(employeeID))", method: "DELETE", pin: pin)
     }
 
     /// Admin only (needs the PIN, which the backend checks). Returns how many were actually
@@ -80,8 +84,8 @@ struct BackendClient {
         _ = try await send("/courses", method: "PUT", body: body, pin: pin)
     }
 
-    func registerDeviceToken(_ token: String) async throws {
-        let body = try JSONEncoder().encode(["token": token])
+    func registerDeviceToken(_ token: String, employeeID: String) async throws {
+        let body = try JSONEncoder().encode(["token": token, "employee_id": employeeID])
         _ = try await send("/device-token", method: "POST", body: body)
     }
 
@@ -104,6 +108,10 @@ struct BackendClient {
             throw BackendError.server(http.statusCode, String(data: data, encoding: .utf8))
         }
         return data
+    }
+
+    private static func encoded(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
     }
 
     static let courseDateFormatter: DateFormatter = {
