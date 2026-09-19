@@ -23,7 +23,7 @@
 project.yml                  # XcodeGen 專案定義（.xcodeproj 由 CI 自動產生，不進版控）
 courses.json                 # 每週固定課表（依星期幾重複）— App 執行時透過網路抓這個檔案
 Shared/WidgetData.swift      # App 和小工具都會編譯進去的共用資料模型（透過 App Group 交換資料）
-Shared/Theme.swift           # 調色盤（亮/暗）、圓角、字重 — App 和小工具共用同一份，改色只改這裡
+Shared/Theme.swift           # 主題（經典 / Apple 風格）的調色盤（亮/暗）、圓角、字重 — App 和小工具共用同一份；使用者在設定頁選主題，改色只改這裡
 Jofit/                       # 主 App target
   JofitApp.swift
   PushSupport.swift           # AppDelegate：註冊 APNs device token、前景時也顯示推播橫幅

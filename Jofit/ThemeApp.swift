@@ -11,7 +11,7 @@ extension Theme {
         let scrollEdge = UINavigationBarAppearance()
         scrollEdge.configureWithTransparentBackground()
         scrollEdge.largeTitleTextAttributes = [
-            .font: UIFont.systemFont(ofSize: 34, weight: .heavy),
+            .font: UIFont.systemFont(ofSize: 34, weight: palette.navLargeTitle),
             .foregroundColor: UI.ink,
         ]
         scrollEdge.titleTextAttributes = [
@@ -60,35 +60,38 @@ enum CourseCategory {
         self = hit?.category ?? .other
     }
 
-    /// Four clearly different hues, each ≥ 4.5:1 against the card in both modes:
-    /// wood brown, olive green, brick red, cool grey-blue; plus neutral taupe.
+    /// Four clearly different hues plus a neutral, each ≥ 4.5:1 against the card in both modes
+    /// (the actual values are per theme, in `Theme.Palette`).
     var color: Color {
+        let p = Theme.palette
+        let pair: Theme.Pair
         switch self {
-        case .strength: return Color(uiColor: .dynamic(light: 0x8B5E3C, dark: 0xC9976B))
-        case .cardio: return Color(uiColor: .dynamic(light: 0x627629, dark: 0xA9BB6B))
-        case .dance: return Color(uiColor: .dynamic(light: 0xB04A35, dark: 0xE28C77))
-        case .conditioning: return Color(uiColor: .dynamic(light: 0x5B7083, dark: 0x93AABD))
-        case .other: return Color(uiColor: .dynamic(light: 0x7D6E5E, dark: 0x9C8B7C))
+        case .strength: pair = p.strength
+        case .cardio: pair = p.cardio
+        case .dance: pair = p.dance
+        case .conditioning: pair = p.conditioning
+        case .other: pair = p.other
         }
+        return Color(uiColor: .dynamic(pair))
     }
 }
 
 // MARK: - Reusable styles
 
-/// Dark capsule, gold border, gold label. Use for the main action on any screen
-/// (filter "完成", submit bar, onboarding, future "確認預約"). Solid dark is reserved for this.
+/// The main action on any screen (filter "完成", submit bar, onboarding, future "確認預約").
+/// Classic: dark capsule, gold border, gold label. Apple: solid blue capsule, white label.
 struct PrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let p = Theme.palette
+        return configuration.label
             .font(.headline)
-            // Gold text is fine here only because it sits on the dark fill (~10:1).
-            .foregroundStyle(Theme.brand)
+            .foregroundStyle(Color(uiColor: .dynamic(p.primaryText)))
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
-            .background(Capsule().fill(Theme.inkFill))
-            .overlay(Capsule().strokeBorder(Theme.brand, lineWidth: 1.5))
+            .background(Capsule().fill(Color(uiColor: .dynamic(p.primaryFill))))
+            .overlay(Capsule().strokeBorder(Theme.brand, lineWidth: p.primaryOutlined ? 1.5 : 0))
             .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
     }
 }

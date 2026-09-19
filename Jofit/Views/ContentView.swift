@@ -45,6 +45,9 @@ struct ContentView: View {
                     .accessibilityHidden(tab != item)
             }
         }
+        // Rebuild the pages on theme change so views re-read `Theme` tokens (unsent selections
+        // and filters reset; the tab itself is kept).
+        .id(settings.theme)
         .environment(\.tabBarInset, tabBarHeight)
         .background(Theme.background.ignoresSafeArea())
         .overlay(alignment: .bottom) { tabBar }

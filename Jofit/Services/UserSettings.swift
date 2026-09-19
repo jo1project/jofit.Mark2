@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import WidgetKit
 
 final class UserSettings: ObservableObject {
     @Published var name: String {
@@ -15,6 +16,15 @@ final class UserSettings: ObservableObject {
         didSet { UserDefaults.standard.set(hasOnboarded, forKey: Keys.hasOnboarded) }
     }
 
+    /// Persisted by `AppTheme.current` (App Group defaults, shared with the widget).
+    @Published var theme: AppTheme {
+        didSet {
+            AppTheme.current = theme
+            Theme.applyAppearance()
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
+
     private enum Keys {
         static let name = "settings.name"
         static let employeeID = "settings.employeeID"
@@ -25,6 +35,7 @@ final class UserSettings: ObservableObject {
         name = UserDefaults.standard.string(forKey: Keys.name) ?? ""
         employeeID = UserDefaults.standard.string(forKey: Keys.employeeID) ?? ""
         hasOnboarded = UserDefaults.standard.bool(forKey: Keys.hasOnboarded)
+        theme = AppTheme.current
     }
 
     var isComplete: Bool {
