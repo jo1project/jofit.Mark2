@@ -97,8 +97,10 @@ final class ReservationStore: ObservableObject {
     /// Writes today's submitted courses into the shared App Group container and asks WidgetKit
     /// to redraw — the widget process can't see this app's own storage directly.
     private func updateWidgetData() {
+        // The list holds every user's reservations; the widget must only show this user's.
+        let mine = UserDefaults.standard.string(forKey: UserSettings.employeeIDKey) ?? ""
         let entries = reservations
-            .filter { $0.status == .submitted }
+            .filter { $0.status == .submitted && $0.isBooked(by: mine) }
             .map { SharedCourseEntry(date: $0.course.date, name: $0.course.name, time: $0.course.time) }
         WidgetData(submittedCourses: entries, updatedAt: Date()).save()
         WidgetCenter.shared.reloadAllTimelines()

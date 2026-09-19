@@ -47,7 +47,6 @@ struct HistoryView: View {
 
     private var visible: [Reservation] {
         guard !showAll else { return reservationStore.reservations }
-        guard !settings.employeeID.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
         return reservationStore.reservations.filter { $0.isBooked(by: settings.employeeID) }
     }
 

@@ -16,7 +16,8 @@ struct Reservation: Identifiable, Codable {
     var employeeID: String?
 
     func isBooked(by employeeID: String) -> Bool {
-        (self.employeeID ?? "").trimmingCharacters(in: .whitespaces) == employeeID.trimmingCharacters(in: .whitespaces)
+        let mine = employeeID.trimmingCharacters(in: .whitespaces)
+        return !mine.isEmpty && (self.employeeID ?? "").trimmingCharacters(in: .whitespaces) == mine
     }
 
     /// Cancellable only while still waiting for a future fire time (courses under 6 days out

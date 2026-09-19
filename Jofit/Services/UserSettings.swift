@@ -25,9 +25,12 @@ final class UserSettings: ObservableObject {
         }
     }
 
+    /// Also read by `ReservationStore` to keep the widget to the current user's own reservations.
+    static let employeeIDKey = "settings.employeeID"
+
     private enum Keys {
         static let name = "settings.name"
-        static let employeeID = "settings.employeeID"
+        static let employeeID = UserSettings.employeeIDKey
         static let hasOnboarded = "settings.hasOnboarded"
     }
 
