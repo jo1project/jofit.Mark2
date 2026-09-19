@@ -128,5 +128,30 @@ async def main():
     assert len(fake_submit_form.calls) == 1, fake_submit_form.calls
     print("PASS: a different employee+class combination is unaffected by others' attempt history")
 
+    # Cancel: a deleted reservation must never fire, even if it's already due.
+    fake_submit_form.calls.clear()
+    async with storage.connect() as db:
+        await db.execute(
+            """INSERT INTO reservations
+               (id, course_id, course_date, course_time, course_name, reporter_name,
+                employee_id, fire_date, status, submitted_at, http_status, last_error, created_at)
+               VALUES ('cancel-id', 'cancel-1', ?, '0900', '取消測試', '測試', 'E007',
+                       '2020-01-01T00:00:00+08:00', 'pending', NULL, NULL, NULL, '2020-01-01T00:00:00+08:00')""",
+            (past_date,),
+        )
+        await db.commit()
+    assert await reservations.cancel_reservation("cancel-id") is True
+    await reservations.process_due()
+    assert not fake_submit_form.calls, fake_submit_form.calls
+    assert await reservations.cancel_reservation("cancel-id") is False  # already gone
+    assert await reservations._submit("cancel-id") is None  # cancelled between select and claim
+    print("PASS: cancelled reservation never fires; late claim on it is a no-op")
+
+    # Cancel refuses submitted (result_c above), allows failed (results_a[0]).
+    assert await reservations.cancel_reservation(result_c["id"]) is False
+    assert any(r["id"] == result_c["id"] for r in await reservations.list_reservations())
+    assert await reservations.cancel_reservation(results_a[0]["id"]) is True
+    print("PASS: submitted can't be cancelled, failed can")
+
 
 asyncio.run(main())

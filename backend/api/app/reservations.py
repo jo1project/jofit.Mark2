@@ -89,9 +89,12 @@ async def list_reservations() -> list[dict[str, Any]]:
 
 
 async def cancel_reservation(reservation_id: str) -> bool:
+    """Deleting the row is the whole cancel: the scheduler only ever reads this table, so a
+    deleted reservation can't fire. Only pending (not yet sent) and failed (nothing to undo)
+    rows can go — submitting is mid-POST and submitted can't be recalled from Google Forms."""
     async with connect() as db:
         cursor = await db.execute(
-            "DELETE FROM reservations WHERE id = ? AND status != 'submitting'", (reservation_id,)
+            "DELETE FROM reservations WHERE id = ? AND status IN ('pending', 'failed')", (reservation_id,)
         )
         await db.commit()
         return cursor.rowcount > 0
@@ -133,7 +136,7 @@ async def register_device(token: str) -> None:
         await db.commit()
 
 
-async def _submit(reservation_id: str) -> dict[str, Any]:
+async def _submit(reservation_id: str) -> dict[str, Any] | None:
     """Atomically claims the reservation (pending -> submitting) before doing anything that
     awaits, so two overlapping sweeps (or a request landing at the exact fire moment) can never
     both submit the same reservation — the UPDATE...WHERE status='pending' only succeeds once.
@@ -152,7 +155,8 @@ async def _submit(reservation_id: str) -> dict[str, Any]:
             row = await cursor.fetchone()
 
         if not claimed:
-            return _row_to_dict(row)
+            # row is None if it was cancelled after the caller picked this id up.
+            return _row_to_dict(row) if row else None
 
         now = datetime.now(TAIPEI).replace(microsecond=0)
         cutoff = (now - ATTEMPT_WINDOW).isoformat()

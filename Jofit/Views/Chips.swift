@@ -168,6 +168,33 @@ struct StatusPill: View {
     }
 }
 
+/// Shared by the courses and history screens: confirm, then cancel (or clear, if failed) the
+/// reservation held in `reservation`.
+private struct CancelConfirmation: ViewModifier {
+    @EnvironmentObject private var reservationStore: ReservationStore
+    @Binding var reservation: Reservation?
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            "這堂課要取消預約嗎？",
+            isPresented: Binding(get: { reservation != nil }, set: { if !$0 { reservation = nil } }),
+            presenting: reservation
+        ) { reservation in
+            Button(reservation.status == .failed ? "移除" : "取消預約", role: .destructive) {
+                Task { await reservationStore.cancel(reservation) }
+            }
+        } message: { reservation in
+            Text(reservation.course.submissionText)
+        }
+    }
+}
+
+extension View {
+    func cancelConfirmation(_ reservation: Binding<Reservation?>) -> some View {
+        modifier(CancelConfirmation(reservation: reservation))
+    }
+}
+
 /// Small read-only capsule, e.g. the active-filter summary row.
 struct TagPill: View {
     let text: String

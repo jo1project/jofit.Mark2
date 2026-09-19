@@ -56,11 +56,17 @@ final class ReservationStore: ObservableObject {
     func cancel(_ reservation: Reservation) async {
         do {
             try await client.cancelReservation(id: reservation.id)
-            reservations.removeAll { $0.id == reservation.id }
-            saveCache()
-            lastSyncError = nil
+        } catch BackendError.server(404, _) {
+            // Already gone, or sent in the meantime (a lost DELETE response lands here too);
+            // the refresh below shows which.
         } catch {
             lastSyncError = error.localizedDescription
+            return
+        }
+        // Confirm against the backend's list rather than trusting our own removal.
+        await refresh()
+        if lastSyncError == nil, reservations.contains(where: { $0.id == reservation.id }) {
+            lastSyncError = "這筆預約已無法取消"
         }
     }
 

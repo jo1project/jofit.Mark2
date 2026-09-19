@@ -12,6 +12,13 @@ struct Reservation: Identifiable, Codable {
     var httpStatus: Int?
     var lastError: String?
 
+    /// Cancellable only while still waiting for a future fire time (courses under 6 days out
+    /// are sent immediately, so they never wait). A failed one can be cleared to book again.
+    /// Submitting/submitted can't be recalled — Google Forms has no undo.
+    var canDismiss: Bool {
+        (status == .pending && fireDate > Date()) || status == .failed
+    }
+
     enum Status: String, Codable {
         case pending
         case submitting

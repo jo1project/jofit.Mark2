@@ -48,7 +48,7 @@ async def get_reservations() -> list[dict]:
 async def delete_reservation(reservation_id: str) -> dict:
     ok = await reservations.cancel_reservation(reservation_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Not found, already submitted, or currently submitting")
+        raise HTTPException(status_code=404, detail="Not found, or already submitting/submitted")
     return {"ok": True}
 
 

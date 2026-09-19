@@ -137,20 +137,7 @@ struct CoursesView: View {
                 }
             }
             .clearOfTabBar()
-            .confirmationDialog(
-                "這堂課要取消預約嗎？",
-                isPresented: Binding(
-                    get: { reservationPendingCancel != nil },
-                    set: { if !$0 { reservationPendingCancel = nil } }
-                ),
-                presenting: reservationPendingCancel
-            ) { reservation in
-                Button(reservation.status == .failed ? "移除" : "取消預約", role: .destructive) {
-                    Task { await reservationStore.cancel(reservation) }
-                }
-            } message: { reservation in
-                Text(reservation.course.submissionText)
-            }
+            .cancelConfirmation($reservationPendingCancel)
         }
     }
 
@@ -272,7 +259,7 @@ struct CoursesView: View {
                     selectedInstanceIDs.insert(course.id)
                 }
             case .pending, .failed:
-                reservationPendingCancel = reservation
+                if reservation?.canDismiss == true { reservationPendingCancel = reservation }
             case .submitting, .submitted:
                 break
             }

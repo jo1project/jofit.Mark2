@@ -4,6 +4,7 @@ struct HistoryView: View {
     @EnvironmentObject private var reservationStore: ReservationStore
     @State private var expandedMonths: Set<String> = []
     @State private var hasSetInitialExpansion = false
+    @State private var reservationPendingCancel: Reservation?
 
     private struct FireGroup: Identifiable {
         let fireDate: Date
@@ -72,6 +73,11 @@ struct HistoryView: View {
                 // Not Lazy: month cards change height when expanded, and LazyVStack can fail to
                 // re-layout after that. The list is small, so eager is fine.
                 VStack(alignment: .leading, spacing: 12) {
+                    if let error = reservationStore.lastSyncError {
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.danger)
+                    }
                     if !scheduledGroups.isEmpty {
                         sectionTitle("排程中", count: scheduled.count)
                         ForEach(scheduledGroups) { group in
@@ -97,6 +103,7 @@ struct HistoryView: View {
             .clearOfTabBar()
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("預約紀錄")
+            .cancelConfirmation($reservationPendingCancel)
             .refreshable {
                 await reservationStore.refresh()
             }
@@ -220,7 +227,19 @@ struct HistoryView: View {
                 }
             }
             Spacer(minLength: 8)
-            StatusPill(status: reservation.status)
+            VStack(alignment: .trailing, spacing: 4) {
+                StatusPill(status: reservation.status)
+                if reservation.canDismiss {
+                    Button(reservation.status == .failed ? "移除" : "取消") {
+                        reservationPendingCancel = reservation
+                    }
+                    .font(.caption.weight(Theme.Weight.strong))
+                    .foregroundStyle(Theme.danger)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .padding(.vertical, 12)
     }
