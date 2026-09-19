@@ -143,6 +143,8 @@ private struct ReservationDTO: Decodable {
     let submittedAt: String?
     let httpStatus: Int?
     let lastError: String?
+    let reporterName: String?
+    let employeeID: String?
 
     enum CodingKeys: String, CodingKey {
         case id, status
@@ -154,6 +156,8 @@ private struct ReservationDTO: Decodable {
         case submittedAt = "submitted_at"
         case httpStatus = "http_status"
         case lastError = "last_error"
+        case reporterName = "reporter_name"
+        case employeeID = "employee_id"
     }
 
     private static let dateTimeFormatter = ISO8601DateFormatter()
@@ -175,7 +179,8 @@ private struct ReservationDTO: Decodable {
 
         return Reservation(
             id: id, course: course, status: status, fireDate: fire,
-            submittedAt: submitted, httpStatus: httpStatus, lastError: lastError
+            submittedAt: submitted, httpStatus: httpStatus, lastError: lastError,
+            reporterName: reporterName, employeeID: employeeID
         )
     }
 }

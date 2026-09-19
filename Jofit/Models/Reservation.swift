@@ -11,6 +11,9 @@ struct Reservation: Identifiable, Codable {
     var submittedAt: Date?
     var httpStatus: Int?
     var lastError: String?
+    /// Who booked it — the backend keeps every user's reservations in one table.
+    var reporterName: String?
+    var employeeID: String?
 
     /// Cancellable only while still waiting for a future fire time (courses under 6 days out
     /// are sent immediately, so they never wait). A failed one can be cleared to book again.

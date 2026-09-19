@@ -1,6 +1,13 @@
 import SwiftUI
 
+/// "紀錄" shows only the current user's reservations (matched by employee ID); the admin-only
+/// "伺服器" tab is the same screen with `showAll`, listing everyone's.
 struct HistoryView: View {
+    let showAll: Bool
+
+    // Explicit: the synthesized memberwise init would be private because of the @State below.
+    init(showAll: Bool = false) { self.showAll = showAll }
+
     @EnvironmentObject private var settings: UserSettings
     @EnvironmentObject private var reservationStore: ReservationStore
     @State private var expandedMonths: Set<String> = []
@@ -38,14 +45,22 @@ struct HistoryView: View {
         items.sorted { ($0.course.date, $0.course.time, $0.id) < ($1.course.date, $1.course.time, $1.id) }
     }
 
+    private var visible: [Reservation] {
+        guard !showAll else { return reservationStore.reservations }
+        let mine = settings.employeeID.trimmingCharacters(in: .whitespaces)
+        return reservationStore.reservations.filter {
+            !mine.isEmpty && ($0.employeeID ?? "").trimmingCharacters(in: .whitespaces) == mine
+        }
+    }
+
     private var scheduled: [Reservation] {
-        reservationStore.reservations.filter { $0.status == .pending || $0.status == .submitting }
+        visible.filter { $0.status == .pending || $0.status == .submitting }
     }
 
     /// Only reservations still waiting can be bulk-cancelled; a submitting one is mid-POST and
     /// can't be recalled, and a submitted one can't be un-submitted.
     private var pending: [Reservation] {
-        reservationStore.reservations.filter { $0.status == .pending }
+        visible.filter { $0.status == .pending }
     }
 
     private var selectedTargets: [Reservation] {
@@ -53,11 +68,11 @@ struct HistoryView: View {
     }
 
     private var failed: [Reservation] {
-        reservationStore.reservations.filter { $0.status == .failed }
+        visible.filter { $0.status == .failed }
     }
 
     private var submitted: [Reservation] {
-        reservationStore.reservations.filter { $0.status == .submitted }
+        visible.filter { $0.status == .submitted }
     }
 
     /// Reservations that fire in the same minute are shown as one batch.
@@ -120,7 +135,7 @@ struct HistoryView: View {
             }
             .contentMargins(.bottom, 24, for: .scrollContent)
             .background(Theme.background.ignoresSafeArea())
-            .navigationTitle("預約紀錄")
+            .navigationTitle(showAll ? "伺服器" : "預約紀錄")
             .toolbar {
                 if settings.isAdmin && (isSelecting || !pending.isEmpty) {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -142,7 +157,7 @@ struct HistoryView: View {
                 Button("取消", role: .cancel) { pin = "" }
                 Button("取消 \(selectedTargets.count) 筆預約", role: .destructive) { cancelSelected() }
             } message: {
-                Text("將取消 \(selectedTargets.count) 筆排程中的預約，無法復原。")
+                Text("將取消 \(selectedTargets.count) 筆排程中的預約\(showAll ? "（可能包含其他人的）" : "")，無法復原。")
             }
             .alert(
                 "取消結果",
@@ -156,11 +171,11 @@ struct HistoryView: View {
                 await reservationStore.refresh()
             }
             .overlay {
-                if reservationStore.reservations.isEmpty {
+                if visible.isEmpty {
                     ContentUnavailableView(
-                        "還沒有預約紀錄",
+                        showAll ? "伺服器上沒有預約" : "還沒有預約紀錄",
                         systemImage: "tray",
-                        description: Text("到「課程」挑一堂想上的課吧，剩下的交給我們，你只要準時出現就好。")
+                        description: Text(showAll ? "" : "到「課程」挑一堂想上的課吧，剩下的交給我們，你只要準時出現就好。")
                     )
                 }
             }
@@ -325,6 +340,11 @@ struct HistoryView: View {
                 Text("\(course.dateText) \(course.weekdayLabel) \(course.timeText)")
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(Theme.textSecondary)
+                if showAll, let who = who(booked: reservation) {
+                    Text(who)
+                        .font(.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                }
                 if let note = note(for: reservation) {
                     Text(note)
                         .font(.caption)
@@ -355,6 +375,13 @@ struct HistoryView: View {
     }
 
     // MARK: Formatting
+
+    private func who(booked reservation: Reservation) -> String? {
+        let parts = [reservation.reporterName, reservation.employeeID]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: "・")
+    }
 
     /// The pill already says the status; this adds only what it can't (when / why).
     /// Scheduled rows need none — their batch header carries the send time.

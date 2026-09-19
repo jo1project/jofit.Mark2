@@ -12,12 +12,13 @@ struct ContentView: View {
     @State private var tabBarHeight: CGFloat = 72
 
     private enum AppTab: CaseIterable {
-        case courses, history, settings, admin
+        case courses, history, server, admin, settings
 
         var title: String {
             switch self {
             case .courses: return "課程"
             case .history: return "紀錄"
+            case .server: return "伺服器"
             case .settings: return "設定"
             case .admin: return "編輯"
             }
@@ -27,15 +28,16 @@ struct ContentView: View {
             switch self {
             case .courses: return "calendar"
             case .history: return "clock.arrow.circlepath"
+            case .server: return "server.rack"
             case .settings: return "gearshape"
             case .admin: return "square.and.pencil"
             }
         }
     }
 
-    /// The edit tab exists only for the admin (see `UserSettings.isAdmin`).
+    /// The edit and server tabs exist only for the admin (see `UserSettings.isAdmin`).
     private var visibleTabs: [AppTab] {
-        AppTab.allCases.filter { $0 != .admin || settings.isAdmin }
+        AppTab.allCases.filter { ($0 != .admin && $0 != .server) || settings.isAdmin }
     }
 
     var body: some View {
@@ -64,8 +66,8 @@ struct ContentView: View {
             await courseStore.refresh()
             await reservationStore.refresh()
         }
-        .onChange(of: settings.isAdmin) { _, isAdmin in
-            if !isAdmin && tab == .admin { tab = .settings }
+        .onChange(of: settings.isAdmin) {
+            if !visibleTabs.contains(tab) { tab = .settings }
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
@@ -90,6 +92,7 @@ extension ContentView {
         switch item {
         case .courses: CoursesView()
         case .history: HistoryView()
+        case .server: HistoryView(showAll: true)
         case .settings: SettingsView()
         case .admin: EditCoursesView()
         }
