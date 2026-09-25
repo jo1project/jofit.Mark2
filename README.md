@@ -1,6 +1,6 @@
 # Jofit 自動報名 App
 
-一個 SwiftUI iOS App，搭配一個跑在使用者自己 VPS 上的後端，把課程報名自動化：App 負責瀏覽課表、建立預約、顯示狀態；**實際「算什麼時候該送出、真的送出」這件事由後端負責**，跟手機開不開、App 有沒有被關掉都無關。
+一個 SwiftUI iOS App（另有 Jetpack Compose 的 Android 版，見下面「Android 版」），搭配一個跑在使用者自己 VPS 上的後端，把課程報名自動化：App 負責瀏覽課表、建立預約、顯示狀態；**實際「算什麼時候該送出、真的送出」這件事由後端負責**，跟手機開不開、App 有沒有被關掉都無關。
 
 後端用**無頭瀏覽器（headless Chromium，Playwright）**實際打開 Google 表單頁面、填欄位、按送出——不是直接對 `formResponse` 端點送 POST。這是繞了一圈才得到的結論，細節見下面「Google 表單擋掉直接 POST」章節；先講結論：Google 現在會擋掉沒有真的執行 JavaScript 的表單送出（不管內容對不對，一律 400），只有像真人一樣操作瀏覽器才送得出去。
 
@@ -48,6 +48,7 @@ JofitWidget/                 # WidgetKit extension target
   JofitWidget.swift           # TimelineProvider + 畫面
   JofitWidget.entitlements    # App Group 權限（要跟主 App 一致才能讀到同一份資料）
   Assets.xcassets             # 運動圖案／休息圖案
+android/                     # Android 版（Kotlin + Jetpack Compose），檔案一一對照 iOS，見下面「Android 版」
 backend/                     # 跑在使用者 VPS 上的後端，見下面「後端部署」章節
   api/app/                    # FastAPI：預約的建立、排程、送出表單、APNs 推播
   api/tests/test_reservations.py
@@ -55,7 +56,43 @@ backend/                     # 跑在使用者 VPS 上的後端，見下面「�
   docker-compose.yml
   .env.example
 .github/workflows/testflight.yml         # CI：build + 自動上傳 TestFlight
+.github/workflows/android.yml            # CI：build Android APK（改 android/ 才觸發）
 ```
+
+## Android 版
+
+`android/` 是 Kotlin + Jetpack Compose 的 Android 版，功能與 iOS 版一致，**唯一的差別是目前沒有送出結果推播**（後端只會送 APNs；要做的話需要 FCM，後端 `devices` 表要加 platform 欄位）。連的是同一個後端、同一組網址和 token。
+
+### 兩邊怎麼保持同步
+
+不共用程式碼，靠「逐檔對照」和下面這條規則：**改功能（畫面、規則、文字、主題色）的變更，要同時動 `Jofit/`（或 `Shared/`）和 `android/`；只做一邊就在 PR 說明寫明另一邊待辦。** 後端 API 的變更兩邊都要跟。
+
+| iOS | Android（`android/app/src/main/java/com/jofit/autobooking/`） |
+|---|---|
+| `Shared/Theme.swift`、`Jofit/ThemeApp.swift` | `ui/Theme.kt`（調色盤的 hex 值要跟 iOS 一模一樣） |
+| `Models/*.swift` | `model/*.kt` |
+| `Services/BackendClient.swift` | `data/BackendClient.kt` |
+| `Services/CourseStore / ReservationStore / UserSettings.swift` | `data/CourseStore / ReservationStore / UserSettings.kt` |
+| `Views/ContentView.swift`（分頁列） | `ui/MainScreen.kt` |
+| `Views/CoursesView / FilterView / HistoryView / EditCoursesView / SettingsView / OnboardingView.swift` | `ui/CoursesScreen / FilterSheet / HistoryScreen / EditCoursesScreen / SettingsScreen / OnboardingScreen.kt` |
+| `Views/Chips.swift` | `ui/Chips.kt` |
+| `JofitWidget/` | `widget/JofitWidget.kt`（Glance） |
+
+與 iOS 刻意不同的小地方：課程日期用 `LocalDate`（不受時區影響）；編輯課程用每列的刪除鈕而不是左滑；管理員的「伺服器」分頁是切到那個分頁時才問密碼（iOS 是啟動時）；小工具最晚在午夜後 30 分鐘內換日（Android 平台限制），iOS 是準點。
+
+### 建置與安裝
+
+CI（`.github/workflows/android.yml`）在 `android/` 有變動時 build，APK 在該次 run 的 Artifacts（`jofit-android`）。手機要允許「安裝未知來源應用程式」後直接安裝。本機建置：`cd android && ./gradlew assembleRelease`（JDK 17 + Android SDK，`local.properties` 的 `sdk.dir` 指向 SDK）。
+
+**簽章金鑰（只需做一次）**：沒設定的話 CI 用一次性的 debug 金鑰簽，每次的 APK 簽章都不同，新版無法覆蓋安裝舊版（要先解除安裝）。產生固定金鑰並存進 GitHub secrets：
+
+```bash
+keytool -genkeypair -v -keystore jofit-release.jks -alias jofit -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 jofit-release.jks    # 貼到 secret ANDROID_KEYSTORE_BASE64
+# 另外設 ANDROID_KEYSTORE_PASSWORD、ANDROID_KEY_ALIAS（jofit）、ANDROID_KEY_PASSWORD
+```
+
+**這個 `.jks` 檔要自己另外備份，不要放進 repo**（`android/.gitignore` 已擋掉）；弄丟就沒辦法再發能覆蓋安裝的新版。
 
 ## 這台機器沒有 Xcode，怎麼開發？
 
