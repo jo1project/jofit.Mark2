@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 /// Without this, a push that arrives while the app is already open wouldn't show a banner.
+/// `.list` is what keeps it in Notification Center afterwards; banner-only vanishes once dismissed.
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationDelegate()
 
@@ -41,6 +42,6 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound])
+        completionHandler([.banner, .list, .sound])
     }
 }
